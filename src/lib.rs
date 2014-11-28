@@ -1,4 +1,4 @@
-#![crate_name="keepass"]
+#![crate_name="rust-keepass"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 

@@ -1,0 +1,5 @@
+[package]
+
+name = "rust-keepass"
+version = "0.0.1"
+authors = ["GrayFox <grayfox@outerhaven.de>"]
