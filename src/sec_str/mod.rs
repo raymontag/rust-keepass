@@ -1,6 +1,7 @@
 use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use openssl::crypto::symm;
+use std::fmt;
 use std::ptr;
 use std::rand;
 
@@ -17,8 +18,8 @@ impl SecureString {
         // Lock the string against swapping
         unsafe { mman::mlock(string.as_ptr() as *const c_void, string.len() as size_t); }
         let mut sec_str = SecureString { string: string, encrypted_string: vec![1u8],
-                                         password: Vec::from_fn(32u, |x| rand::random::<u8>()),
-                                         iv: Vec::from_fn(32u, |x| rand::random::<u8>()) };
+                                         password: Vec::from_fn(32u, |_1| rand::random::<u8>()),
+                                         iv: Vec::from_fn(32u, |_| rand::random::<u8>()) };
         sec_str.lock();
         sec_str.delete();
         sec_str
@@ -42,6 +43,12 @@ impl SecureString {
 impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
+    }
+}
+
+impl fmt::Show for SecureString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("****").map_err(|_| fmt::Error)
     }
 }
 
@@ -96,5 +103,13 @@ mod tests {
         sec_str2.password = sec_str.password.clone();
         sec_str2.lock();
         assert_eq!(sec_str.encrypted_string, sec_str2.encrypted_string);
+    }
+
+    #[test]
+    fn test_logging() {
+        let str = "Hello, secret!".to_string();
+        let mut sec_str = SecureString::new(str);
+        sec_str.unlock();
+        assert_eq!(format!("{}", sec_str).as_slice(), "****");
     }
 }
