@@ -1,11 +1,11 @@
 [package]
 
-name = "rust-keepass"
+name = "keepass"
 version = "0.0.1"
 authors = ["GrayFox <grayfox@outerhaven.de>", "Jan S. <hans@hannover.ccc.de>"]
 
 [lib]
-name = "rust-keepass"
+name = "keepass"
 path = "src/lib.rs"
 
 test = true
