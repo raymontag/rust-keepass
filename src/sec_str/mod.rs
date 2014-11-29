@@ -5,9 +5,24 @@ use std::fmt;
 use std::ptr;
 use std::rand;
 
-// Using String to get ownership of the input string
+// Needed to overwrite vectors of type Vec<u8> in place. Vec<T>'s clear-method
+// isn't sufficent as it just adjusts the length of the memory.
+// It's named after std::slice::bytes::MutableByteVector, because maybe this
+// is implemented directly for vectors in future
+trait MutableByteVector {
+    fn set_memory(&mut self, value: u8);
+}
+
+impl MutableByteVector for Vec<u8> {
+    fn set_memory(&mut self, value: u8) {
+        unsafe { ptr::set_memory(self.as_ptr() as *mut c_void, value, self.len()) };
+    }
+}
+
 pub struct SecureString {
+    // Use String as type to move ownership to the struct
     pub string: String,
+    // Use of Vec instead of &[u8] because specific lifetimes aren't needed
     encrypted_string: Vec<u8>,
     password: Vec<u8>,
     iv: Vec<u8>,
@@ -40,9 +55,11 @@ impl SecureString {
     }
 }
 
+// string value and encrypted_string value will be overwritten with zeroes after drop of struct
 impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
+        self.encrypted_string.set_memory(0u8);
     }
 }
 
@@ -55,7 +72,15 @@ impl fmt::Show for SecureString {
 #[cfg(test)]
 mod tests {
     use super::SecureString;
+    use super::MutableByteVector;
     use std::str;
+
+    #[test]
+    fn test_set_memory() {
+        let mut vec = vec![1u8, 2u8, 3u8];
+        vec.set_memory(0u8);
+        assert_eq!(vec, vec![0u8, 0u8, 0u8]);
+    }
 
     #[test]
     fn test_new() {
