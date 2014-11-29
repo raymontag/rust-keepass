@@ -18,7 +18,7 @@ impl SecureString {
         // Lock the string against swapping
         unsafe { mman::mlock(string.as_ptr() as *const c_void, string.len() as size_t); }
         let mut sec_str = SecureString { string: string, encrypted_string: vec![1u8],
-                                         password: Vec::from_fn(32u, |_1| rand::random::<u8>()),
+                                         password: Vec::from_fn(32u, |_| rand::random::<u8>()),
                                          iv: Vec::from_fn(32u, |_| rand::random::<u8>()) };
         sec_str.lock();
         sec_str.delete();
