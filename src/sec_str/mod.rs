@@ -19,6 +19,22 @@ impl MutableByteVector for Vec<u8> {
     }
 }
 
+#[doc = "
+SecureString implements a secure string. This means in particular:
+
+* The input string moves to the struct, i.e. it's not just borrowed
+
+* The string is encrypted with a random password for obfuscation
+
+* mlock() is called on the string to prevent swapping
+
+* A method to overwrite the string with zeroes is implemented
+
+* The overwrite method is called on drop of the struct automatically
+
+* Implements fmt::Show to prevent logging of the secrets, i.e. you can
+  access the plaintext string only via the string value.
+"]
 pub struct SecureString {
     // Use String as type to move ownership to the struct
     pub string: String,
@@ -29,7 +45,11 @@ pub struct SecureString {
 }
 
 impl SecureString {
-    pub fn new (string: String) -> SecureString {
+    /// Create a new SecureString
+    /// The input string should already lie on the heap, i.e. the type should
+    /// be String and not &str, otherwise a copy of the plain text string would
+    /// lie in memory. The string will be automatically encrypted and deleted.
+    pub fn new(string: String) -> SecureString {
         // Lock the string against swapping
         unsafe { mman::mlock(string.as_ptr() as *const c_void, string.len() as size_t); }
         let mut sec_str = SecureString { string: string, encrypted_string: vec![1u8],
@@ -40,7 +60,14 @@ impl SecureString {
         sec_str
     }
 
+    /// Overwrite the string with zeroes. Call this everytime after unlock() if you don't
+    /// ned the string anymore.
     pub fn delete(&self) {
+        // Use zero_memory instead of just overwriting the string with string = ... to
+        // make sure that no copy of the string exists in memory
+        // We couldn't find documentation if overwriting a string with a string of the
+        // same length will leave the original string or really manipulating the original
+        // one.
         unsafe { ptr::zero_memory(self.string.as_ptr() as *mut c_void, self.string.len()) };
     }
     
@@ -49,6 +76,8 @@ impl SecureString {
                                               self.iv.clone(), self.string.as_bytes());
     }
 
+    /// Unlock the string, i.e. decrypt it and make it available via the string value.
+    /// Don't forget to call delete() if you don't need the plain text anymore.
     pub fn unlock(&mut self) {
         self.string = String::from_utf8(symm::decrypt(symm::Type::AES_256_CBC, self.password.as_slice(),
                                                       self.iv.clone(), self.encrypted_string.as_slice())).unwrap();
@@ -63,6 +92,7 @@ impl Drop for SecureString {
     }
 }
 
+// Write "****" instead of secret things if SecureString is printed
 impl fmt::Show for SecureString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("****").map_err(|_| fmt::Error)
