@@ -6,3 +6,4 @@ extern crate libc;
 extern crate openssl;
 
 pub mod sec_str;
+pub mod v1kpdb;
