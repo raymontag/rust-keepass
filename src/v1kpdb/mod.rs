@@ -15,7 +15,7 @@ struct V1Header {
     key_transf_rounds: u32,
 }
 
-pub struct V1KPDB {
+pub struct V1Kpdb {
     path:     String,
     password: SecureString,
     keyfile:  String,
@@ -25,9 +25,21 @@ pub struct V1KPDB {
     // root_group:
 }
 
-impl V1KPDB {
-    pub fn new(path: String, password: String, keyfile: String) -> V1KPDB{
-        V1KPDB { path: path.clone(), password: SecureString::new(password), keyfile: keyfile, header: V1KPDB::read_header(path) }
+pub enum V1KpdbError {
+    FileErr,
+    ReadErr,
+    SignatureErr,
+    EncFlagErr,
+    VersionErr,
+}
+
+impl V1Kpdb {
+    pub fn new(path: String, password: String, keyfile: String) -> Result<V1Kpdb, V1KpdbError> {
+        let header = match V1Kpdb::read_header(path.clone()) {
+            Ok(h) => h,
+            Err(e) => return Err(e),
+        };
+        Ok(V1Kpdb { path: path, password: SecureString::new(password), keyfile: keyfile, header: header })
     }
 
     fn read_header_(mut file: File) -> IoResult<V1Header> {
@@ -56,19 +68,52 @@ impl V1KPDB {
                       key_transf_rounds: key_transf_rounds })
     }
 
-    fn read_header(path: String) -> V1Header {
-        let file = File::open_mode(&Path::new(path), Open, Read).ok().expect("Couldn't open database");
-        V1KPDB::read_header_(file).ok().expect("Couldn't read header. Maybe the file is to small (should be more then 124B)?")
+    fn read_header(path: String) -> Result<V1Header, V1KpdbError> {
+        let file = match File::open_mode(&Path::new(path), Open, Read) {
+            Ok(f) => f,
+            Err(e) => return Err(V1KpdbError::FileErr),
+        };
+
+        let header = match V1Kpdb::read_header_(file) {
+            Ok(f) => f,
+            Err(e) => return Err(V1KpdbError::ReadErr),
+        };
+        
+        try!(V1Kpdb::check_signatures(&header));
+        try!(V1Kpdb::check_enc_flag(&header));
+        try!(V1Kpdb::check_version(&header));
+        Ok(header)
+    }
+
+    fn check_signatures(header: &V1Header) -> Result<(), V1KpdbError> {
+        if header.signature1 != 0x9AA2D903u32 || header.signature2 != 0xB54BFB65u32 {
+            return Err(V1KpdbError::SignatureErr);
+        }
+        Ok(())
+    }
+
+    fn check_enc_flag(header: &V1Header) -> Result<(), V1KpdbError> {
+        if header.enc_flag & 2 != 2 {
+            return Err(V1KpdbError::EncFlagErr);
+        }
+        Ok(())
+    }
+
+    fn check_version(header: &V1Header) -> Result<(), V1KpdbError> {
+        if header.version != 0x00030002u32 {
+            return Err(V1KpdbError::VersionErr)
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::V1KPDB;
+    use super::V1Kpdb;
 
     #[test]
     fn test_new() {
-        let mut db = V1KPDB::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string());
+        let mut db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).ok().unwrap();
         assert_eq!(db.path.as_slice(), "test/test_password.kdb");
         assert_eq!(db.password.string.as_slice(), "\0\0\0\0");
         assert_eq!(db.keyfile.as_slice(), "");
@@ -79,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_read_header() {
-        let header = V1KPDB::read_header("test/test_password.kdb".to_string());
+        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
         assert_eq!(header.signature1, 0x9AA2D903u32);
         assert_eq!(header.signature2, 0xB54BFB65u32);
         assert_eq!(header.enc_flag & 2, 2);
