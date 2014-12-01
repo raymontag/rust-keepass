@@ -1,5 +1,7 @@
 use super::sec_str::SecureString;
-use std::io::{File, Open, Read, IoResult};
+use openssl::crypto::hash::{Hasher, HashType};
+use openssl::crypto::symm;
+use std::io::{File, Open, Read, IoResult, SeekStyle};
 
 struct V1Header {
     signature1:        u32,
@@ -35,11 +37,9 @@ pub enum V1KpdbError {
 
 impl V1Kpdb {
     pub fn new(path: String, password: String, keyfile: String) -> Result<V1Kpdb, V1KpdbError> {
-        let header = match V1Kpdb::read_header(path.clone()) {
-            Ok(h) => h,
-            Err(e) => return Err(e),
-        };
-        Ok(V1Kpdb { path: path, password: SecureString::new(password), keyfile: keyfile, header: header })
+        let header = try!(V1Kpdb::read_header(path.clone()));
+        let mut password = SecureString::new(password);
+        Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header })
     }
 
     fn read_header_(mut file: File) -> IoResult<V1Header> {
@@ -69,15 +69,8 @@ impl V1Kpdb {
     }
 
     fn read_header(path: String) -> Result<V1Header, V1KpdbError> {
-        let file = match File::open_mode(&Path::new(path), Open, Read) {
-            Ok(f) => f,
-            Err(e) => return Err(V1KpdbError::FileErr),
-        };
-
-        let header = match V1Kpdb::read_header_(file) {
-            Ok(f) => f,
-            Err(e) => return Err(V1KpdbError::ReadErr),
-        };
+        let file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
+        let header = try!(V1Kpdb::read_header_(file).map_err(|_| V1KpdbError::ReadErr));
         
         try!(V1Kpdb::check_signatures(&header));
         try!(V1Kpdb::check_enc_flag(&header));
@@ -104,6 +97,32 @@ impl V1Kpdb {
             return Err(V1KpdbError::VersionErr)
         }
         Ok(())
+    }
+
+    fn decrypt_database(path: String, password: &mut SecureString) -> Result<(), V1KpdbError> {
+        let mut file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
+        file.seek(124i64, SeekStyle::SeekSet);
+        let decrypted_database = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
+
+        let masterkey = V1Kpdb::get_passwordkey(password);
+
+        Ok(())
+    }
+
+    fn get_passwordkey(password: &mut SecureString) -> Vec<u8> {
+        // password.string.as_bytes() is secure as just a reference is returned
+        password.unlock();
+        let password_string = password.string.as_bytes();
+
+        let mut hasher = Hasher::new(HashType::SHA256);
+        hasher.update(password_string);
+        password.delete();
+
+        hasher.finalize()
+    }
+
+    fn transform_key(masterkey: Vec<u8>) {
+        
     }
 }
 
