@@ -99,12 +99,14 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn decrypt_database(path: String, password: &mut SecureString) -> Result<(), V1KpdbError> {
+    fn decrypt_database(path: String, password: &mut SecureString, header: &V1Header) -> Result<(), V1KpdbError> {
         let mut file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
-        file.seek(124i64, SeekStyle::SeekSet);
-        let decrypted_database = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
+        try!(file.seek(124i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
+        let crypted_database = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
 
         let masterkey = V1Kpdb::get_passwordkey(password);
+        let finalkey = V1Kpdb::transform_key(masterkey, header);
+        let decrypted_database = V1Kpdb::decrypt_it(finalkey, crypted_database, header);
 
         Ok(())
     }
@@ -121,8 +123,29 @@ impl V1Kpdb {
         hasher.finalize()
     }
 
-    fn transform_key(masterkey: Vec<u8>) {
-        
+    fn transform_key(mut masterkey: Vec<u8>, header: &V1Header) -> Vec<u8> {
+        for _ in range(0u32, header.key_transf_rounds) {
+            masterkey = symm::encrypt(symm::Type::AES_256_ECB, header.transf_randomseed.as_slice(), 
+                                      vec![], masterkey.as_slice());
+        }
+        let mut hasher = Hasher::new(HashType::SHA256);
+        hasher.update(masterkey.as_slice());
+        masterkey = hasher.finalize();
+
+        let mut hasher = Hasher::new(HashType::SHA256);
+        hasher.update(header.final_randomseed.as_slice());
+        hasher.update(masterkey.as_slice());
+
+        hasher.finalize()
+    }
+
+    fn decrypt_it(finalkey: Vec<u8>, crypted_database: Vec<u8>, header: &V1Header) -> Vec<u8> {
+        let db_tmp = symm::decrypt(symm::Type::AES_256_CBC, finalkey.as_slice(), header.iv.clone(), 
+                                crypted_database.as_slice());
+        let padding = db_tmp[-1] as uint;
+        let length = db_tmp.len(); 
+        let mut db_iter = db_tmp.into_iter().take(length - padding);
+        Vec::from_fn(length - padding, |_| db_iter.next().unwrap())
     }
 }
 
