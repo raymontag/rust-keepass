@@ -33,12 +33,14 @@ pub enum V1KpdbError {
     SignatureErr,
     EncFlagErr,
     VersionErr,
+    HashErr,
 }
 
 impl V1Kpdb {
     pub fn new(path: String, password: String, keyfile: String) -> Result<V1Kpdb, V1KpdbError> {
         let header = try!(V1Kpdb::read_header(path.clone()));
         let mut password = SecureString::new(password);
+        let decrypted_database = try!(V1Kpdb::decrypt_database(path.clone(), &mut password, &header));
         Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header })
     }
 
@@ -99,7 +101,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn decrypt_database(path: String, password: &mut SecureString, header: &V1Header) -> Result<(), V1KpdbError> {
+    fn decrypt_database(path: String, password: &mut SecureString, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
         let mut file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
         try!(file.seek(124i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
         let crypted_database = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
@@ -107,8 +109,9 @@ impl V1Kpdb {
         let masterkey = V1Kpdb::get_passwordkey(password);
         let finalkey = V1Kpdb::transform_key(masterkey, header);
         let decrypted_database = V1Kpdb::decrypt_it(finalkey, crypted_database, header);
+        try!(V1Kpdb::check_content_hash(header, &decrypted_database))
 
-        Ok(())
+        Ok(decrypted_database)
     }
 
     fn get_passwordkey(password: &mut SecureString) -> Vec<u8> {
@@ -124,9 +127,10 @@ impl V1Kpdb {
     }
 
     fn transform_key(mut masterkey: Vec<u8>, header: &V1Header) -> Vec<u8> {
+        let crypter = symm::Crypter::new(symm::Type::AES_256_ECB);
+        crypter.init(symm::Mode::Encrypt, header.transf_randomseed.as_slice(), vec![]);
         for _ in range(0u32, header.key_transf_rounds) {
-            masterkey = symm::encrypt(symm::Type::AES_256_ECB, header.transf_randomseed.as_slice(), 
-                                      vec![], masterkey.as_slice());
+            masterkey = crypter.update(masterkey.as_slice());
         }
         let mut hasher = Hasher::new(HashType::SHA256);
         hasher.update(masterkey.as_slice());
@@ -142,16 +146,26 @@ impl V1Kpdb {
     fn decrypt_it(finalkey: Vec<u8>, crypted_database: Vec<u8>, header: &V1Header) -> Vec<u8> {
         let db_tmp = symm::decrypt(symm::Type::AES_256_CBC, finalkey.as_slice(), header.iv.clone(), 
                                 crypted_database.as_slice());
-        let padding = db_tmp[-1] as uint;
+        let padding = db_tmp[db_tmp.len() - 1] as uint;
         let length = db_tmp.len(); 
         let mut db_iter = db_tmp.into_iter().take(length - padding);
         Vec::from_fn(length - padding, |_| db_iter.next().unwrap())
+    }
+
+    fn check_content_hash(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
+        let mut hasher = Hasher::new(HashType::SHA256);
+        hasher.update(decrypted_content.as_slice());
+        if hasher.finalize() != header.contents_hash {
+            return Err(V1KpdbError::HashErr);
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::V1Kpdb;
+    use super::super::sec_str::SecureString;
 
     #[test]
     fn test_new() {
@@ -161,7 +175,9 @@ mod tests {
         assert_eq!(db.keyfile.as_slice(), "");
 
         db.password.unlock();
-        assert_eq!(db.password.string.as_slice(), "test")
+        assert_eq!(db.password.string.as_slice(), "test");
+
+        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "tes".to_string(), "".to_string()).is_err(), true);
     }
 
     #[test]
@@ -182,5 +198,51 @@ mod tests {
         assert_eq!(header.contents_hash[15], 0x4Eu8);
         assert_eq!(header.transf_randomseed[0], 0x69u8);
         assert_eq!(header.transf_randomseed[15], 0x9Fu8);
+    }
+
+    #[test]
+    fn test_passwordkey() {
+        let testkey = vec![0x04, 0xE7, 0x22, 0xF6,
+                           0x17, 0x1D, 0x5A, 0x4D,
+                           0xE9, 0xBE, 0x7D, 0x36,
+                           0x74, 0xB1, 0x5F, 0x83,
+                           0xA7, 0xD4, 0x22, 0x67,
+                           0xAF, 0x38, 0x24, 0x05,
+                           0xDA, 0x9A, 0xA6, 0x09,
+                           0x3E, 0x63, 0xC8, 0x70];
+
+        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut sec_str = SecureString::new("test".to_string());
+        let masterkey = V1Kpdb::get_passwordkey(&mut sec_str);
+        let finalkey = V1Kpdb::transform_key(masterkey, &header);
+        assert_eq!(finalkey, testkey);
+    }
+
+    #[test]
+    fn test_decrypt_it() {
+        let test_content1: Vec<u8> = vec![0x01, 0x00, 0x04, 0x00,
+                                          0x00, 0x00, 0x01, 0x00,
+                                          0x00, 0x00, 0x02, 0x00,
+                                          0x09, 0x00, 0x00, 0x00];
+        let test_content2: Vec<u8> = vec![0x00, 0x05, 0x00, 0x00,
+                                          0x00, 0x1F, 0x7C, 0xB5,
+                                          0x7E, 0xFB, 0xFF, 0xFF,
+                                          0x00, 0x00, 0x00, 0x00];
+
+        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut sec_str = SecureString::new("test".to_string());
+        let db_tmp = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
+        let db_len = db_tmp.len();
+        let db_clone = db_tmp.clone();
+
+        let mut db_iter = db_tmp.into_iter();
+        let mut db_iter2 = db_clone.into_iter();
+        let mut db_iter3 = db_iter2.skip(db_len - 16);
+        
+        let test1 = Vec::from_fn(16, |_| db_iter.next().unwrap());
+        let test2 = Vec::from_fn(16, |_| db_iter3.next().unwrap());
+
+        assert_eq!(test_content1, test1);
+        assert_eq!(test_content2, test2);
     }
 }
