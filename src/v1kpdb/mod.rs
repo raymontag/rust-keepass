@@ -1,7 +1,9 @@
 use super::sec_str::SecureString;
+use libc::c_void;
 use openssl::crypto::hash::{Hasher, HashType};
 use openssl::crypto::symm;
 use std::io::{File, Open, Read, IoResult, SeekStyle};
+use std::ptr;
 
 struct V1Header {
     signature1:        u32,
@@ -33,6 +35,7 @@ pub enum V1KpdbError {
     SignatureErr,
     EncFlagErr,
     VersionErr,
+    DecryptErr,
     HashErr,
 }
 
@@ -109,7 +112,10 @@ impl V1Kpdb {
         let masterkey = V1Kpdb::get_passwordkey(password);
         let finalkey = V1Kpdb::transform_key(masterkey, header);
         let decrypted_database = V1Kpdb::decrypt_it(finalkey, crypted_database, header);
-        try!(V1Kpdb::check_content_hash(header, &decrypted_database))
+
+
+        try!(V1Kpdb::check_decryption_success(header, &decrypted_database));
+        try!(V1Kpdb::check_content_hash(header, &decrypted_database));
 
         Ok(decrypted_database)
     }
@@ -140,17 +146,30 @@ impl V1Kpdb {
         hasher.update(header.final_randomseed.as_slice());
         hasher.update(masterkey.as_slice());
 
+        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void, masterkey.len()) };
+
         hasher.finalize()
     }
 
     fn decrypt_it(finalkey: Vec<u8>, crypted_database: Vec<u8>, header: &V1Header) -> Vec<u8> {
         let db_tmp = symm::decrypt(symm::Type::AES_256_CBC, finalkey.as_slice(), header.iv.clone(), 
-                                crypted_database.as_slice());
+                                   crypted_database.as_slice());
+
+        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void, finalkey.len()) };
+
         let padding = db_tmp[db_tmp.len() - 1] as uint;
         let length = db_tmp.len(); 
         let mut db_iter = db_tmp.into_iter().take(length - padding);
         Vec::from_fn(length - padding, |_| db_iter.next().unwrap())
     }
+
+    fn check_decryption_success(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
+        if (decrypted_content.len() > 2147483446) || (decrypted_content.len() == 0 && header.num_groups > 0) {
+            return Err(V1KpdbError::DecryptErr);
+        }
+        Ok(())
+    }
+    
 
     fn check_content_hash(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
         let mut hasher = Hasher::new(HashType::SHA256);
