@@ -4,6 +4,7 @@ use openssl::crypto::hash::{Hasher, HashType};
 use openssl::crypto::symm;
 use std::io::{File, Open, Read, IoResult, SeekStyle};
 use std::ptr;
+use std::str;
 
 struct V1Header {
     signature1:        u32,
@@ -24,9 +25,34 @@ pub struct V1Kpdb {
     password: SecureString,
     keyfile:  String,
     header:   V1Header,
-    // groups:
+    groups: Vec<Box<V1Group>>,
     // entries:
     // root_group:
+}
+
+pub struct V1Group {
+    id:          u32, 
+    title:       String,
+    image:       u32,
+    level:       u16,
+    creation:    Tm,
+    last_mod:    Tm,
+    last_access: Tm,
+    expire:      Tm,
+    flags:       u32,
+    parent:      Box<Option<V1Group>>,
+    children:    Vec<Box<V1Group>>,
+    //entries: Vec<V1Entry>,
+    //db: Box<Option<V1Kpdb>>,
+}
+
+pub struct Tm {
+    year:   i32,
+    month:  i32,
+    day:    i32,
+    hour:   i32,
+    minute: i32,
+    second: i32,
 }
 
 pub enum V1KpdbError {
@@ -37,6 +63,28 @@ pub enum V1KpdbError {
     VersionErr,
     DecryptErr,
     HashErr,
+    ConvertErr,
+    OffsetErr,
+}
+
+fn slice_to_u16 (slice: &[u8]) -> Result<u16, V1KpdbError> {
+    if slice.len() < 2 {
+        return Err(V1KpdbError::ConvertErr);
+    }
+
+    let value = slice[1] as u16 << 8;
+    Ok(value | slice[0] as u16)
+}
+
+fn slice_to_u32 (slice: &[u8]) -> Result<u32, V1KpdbError> {
+    if slice.len() < 4 {
+        return Err(V1KpdbError::ConvertErr);
+    }
+    
+    let mut value = slice[3] as u32 << 24;
+    value |= slice[2] as u32 << 16;
+    value |= slice[1] as u32 << 8;
+    Ok(value | slice[0] as u32)
 }
 
 impl V1Kpdb {
@@ -44,7 +92,8 @@ impl V1Kpdb {
         let header = try!(V1Kpdb::read_header(path.clone()));
         let mut password = SecureString::new(password);
         let decrypted_database = try!(V1Kpdb::decrypt_database(path.clone(), &mut password, &header));
-        Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header })
+        let groups = try!(V1Kpdb::parse_groups(&header, &decrypted_database));
+        Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header, groups: groups})
     }
 
     fn read_header_(mut file: File) -> IoResult<V1Header> {
@@ -170,7 +219,6 @@ impl V1Kpdb {
         Ok(())
     }
     
-
     fn check_content_hash(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
         let mut hasher = Hasher::new(HashType::SHA256);
         hasher.update(decrypted_content.as_slice());
@@ -178,6 +226,119 @@ impl V1Kpdb {
             return Err(V1KpdbError::HashErr);
         }
         Ok(())
+    }
+
+    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>) -> Result<Vec<Box<V1Group>>, V1KpdbError> {
+        let mut pos: uint = 0;
+        let mut group_number: u32 = 0;
+        let mut levels: Vec<u16> = vec![];
+        let mut cur_group = box V1Group::new();
+        let mut groups: Vec<Box<V1Group>> = vec![];
+        
+        let mut field_type: u16;
+        let mut field_size: u32;
+
+        while group_number < header.num_groups {
+            field_type = try!(slice_to_u16(decrypted_database.slice(pos, pos + 2)));
+            pos += 2;
+
+            if pos >= decrypted_database.len() {
+                return Err(V1KpdbError::OffsetErr);
+            }
+
+            field_size = try!(slice_to_u32(decrypted_database.slice(pos, pos + 4)));
+            pos += 4;
+
+            if pos >= decrypted_database.len() {
+                return Err(V1KpdbError::OffsetErr);
+            }
+
+            let _ = V1Kpdb::read_group_field(&mut cur_group, &mut levels, field_type, field_size, 
+                                         decrypted_database, pos);
+
+            if field_type == 0xFFFF {
+                groups.push(cur_group);
+                cur_group = box V1Group::new();
+                group_number += 1;
+            }
+
+            pos += field_size as uint;
+        }
+
+        Ok(groups)
+    }
+
+    fn read_group_field(group: &mut Box<V1Group>, levels: &mut Vec<u16>, field_type: u16, field_size: u32,
+                        decrypted_database: &Vec<u8>, pos: uint) -> Result<(), V1KpdbError> {
+        let db_slice = if field_type == 0x0002 {
+            decrypted_database.slice(pos, pos + (field_size - 1) as uint)
+        } else {
+            decrypted_database.slice(pos, pos + field_size as uint)
+        };
+
+        match field_type {
+            0x0001 => group.id = try!(slice_to_u32(db_slice)),
+            0x0002 => group.title = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0003 => group.creation = V1Kpdb::get_date(db_slice),
+            0x0004 => group.last_mod = V1Kpdb::get_date(db_slice),
+            0x0005 => group.last_access = V1Kpdb::get_date(db_slice),
+            0x0006 => group.expire = V1Kpdb::get_date(db_slice),
+            0x0007 => group.image = try!(slice_to_u32(db_slice)),
+            0x0008 => { group.level = try!(slice_to_u16(db_slice)); 
+                        levels.push(group.level) },
+            0x0009 => group.flags = try!(slice_to_u32(db_slice)),
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    fn get_date(date_bytes: &[u8]) -> Tm {
+        let dw1 = date_bytes[0] as i32;
+        let dw2 = date_bytes[1] as i32;
+        let dw3 = date_bytes[2] as i32;
+        let dw4 = date_bytes[3] as i32;
+        let dw5 = date_bytes[4] as i32;
+
+        let year = (dw1 << 6) | (dw2 >> 2);
+        let month = ((dw2 & 0x03) << 2) | (dw3 >> 6);
+        let day = (dw3 >> 1) & 0x1F;
+        let hour = ((dw3 & 0x01) << 4) | (dw4 >> 4);
+        let minute = ((dw4 & 0x0F) << 2) | (dw5 >> 6);
+        let second = dw5 & 0x3F;
+
+        Tm { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
+    }
+}
+
+impl V1Group {
+    pub fn new() -> V1Group {
+        V1Group { id:          0, 
+                  title:       "".to_string(),
+                  image:       0,
+                  level:       0,
+                  creation:    Tm::new(),
+                  last_mod:    Tm::new(),
+                  last_access: Tm::new(),
+                  expire:      Tm::new(),
+                  flags:       0,
+                  parent:      box None,
+                  children:    vec![],
+                  //entries: Vec<V1Entry>,
+                  //db: box None,
+        }
+    }
+}
+
+impl Tm {
+    pub fn new() -> Tm {
+        Tm { year:   0,
+             month:  0,
+             day:    0,
+             hour:   0,
+             minute: 0,
+             second: 0,
+        }
     }
 }
 
@@ -255,7 +416,7 @@ mod tests {
         let db_clone = db_tmp.clone();
 
         let mut db_iter = db_tmp.into_iter();
-        let mut db_iter2 = db_clone.into_iter();
+        let db_iter2 = db_clone.into_iter();
         let mut db_iter3 = db_iter2.skip(db_len - 16);
         
         let test1 = Vec::from_fn(16, |_| db_iter.next().unwrap());
@@ -263,5 +424,27 @@ mod tests {
 
         assert_eq!(test_content1, test1);
         assert_eq!(test_content2, test2);
+    }
+
+    #[test]
+    fn test_parse_groups () {
+        let db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).ok().unwrap();
+
+        assert_eq!(db.groups[0].id, 1);
+        assert_eq!(db.groups[0].title.as_slice(), "Internet");
+        assert_eq!(db.groups[0].image, 1);
+        assert_eq!(db.groups[0].level, 0);
+        assert_eq!(db.groups[0].creation.year, 0);
+        assert_eq!(db.groups[0].creation.month, 0);
+        assert_eq!(db.groups[0].creation.day, 0);
+
+        assert_eq!(db.groups[1].id, 2);
+        assert_eq!(db.groups[1].title.as_slice(), "test");
+        assert_eq!(db.groups[1].image, 1);
+        assert_eq!(db.groups[1].level, 0);
+        assert_eq!(db.groups[1].creation.year, 2014);
+        assert_eq!(db.groups[1].creation.month, 2);
+        assert_eq!(db.groups[1].creation.day, 26);
+
     }
 }
