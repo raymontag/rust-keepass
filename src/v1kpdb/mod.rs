@@ -284,6 +284,9 @@ impl V1Kpdb {
             } else if field_type == 0xFFFF {
                 groups.push(cur_group);
                 group_number += 1;
+                if group_number == header.num_groups {
+                    break;
+                };
                 cur_group = box V1Group::new();
             }
 
@@ -328,7 +331,10 @@ impl V1Kpdb {
             if field_type == 0xFFFF {
                 entries.push(cur_entry);
                 entry_number += 1;
-                cur_entry = box V1Entry::new();
+                if entry_number == header.num_entries {
+                    break;
+                };
+                cur_entry = box V1Entry::new() 
             }
 
             pos += field_size as uint;
@@ -379,7 +385,7 @@ impl V1Kpdb {
             0x0004 => entry.title = str::from_utf8(db_slice).unwrap_or("").to_string(),
             0x0005 => entry.url = str::from_utf8(db_slice).unwrap_or("").to_string(),
             0x0006 => entry.username = str::from_utf8(db_slice).unwrap_or("").to_string(),
-            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice).to_string()),
+            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice).unwrap().to_string()),
             0x0008 => entry.comment = str::from_utf8(db_slice).unwrap_or("").to_string(),
             0x0009 => entry.creation = V1Kpdb::get_date(db_slice),
             0x000A => entry.last_mod = V1Kpdb::get_date(db_slice),
@@ -600,6 +606,7 @@ mod tests {
         let mut entries = V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138u).ok().unwrap();
 
         entries[0].password.unlock();
+
         assert_eq!(entries[0].uuid, uuid);
         assert_eq!(entries[0].title.as_slice(), "foo");
         assert_eq!(entries[0].url.as_slice(), "foo");
@@ -610,6 +617,5 @@ mod tests {
         assert_eq!(entries[0].creation.year, 2014);
         assert_eq!(entries[0].creation.month, 2);
         assert_eq!(entries[0].creation.day, 26);
-
     }
 }
