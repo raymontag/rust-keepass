@@ -26,7 +26,7 @@ pub struct V1Kpdb {
     keyfile:  String,
     header:   V1Header,
     groups: Vec<Box<V1Group>>,
-    // entries:
+    entries: Vec<Box<V1Entry>>,
     // root_group:
 }
 
@@ -42,8 +42,26 @@ pub struct V1Group {
     flags:       u32,
     parent:      Box<Option<V1Group>>,
     children:    Vec<Box<V1Group>>,
-    //entries: Vec<V1Entry>,
+    //entries: Vec<Box<V1Entry>>,
     //db: Box<Option<V1Kpdb>>,
+}
+
+pub struct V1Entry {
+    uuid: Vec<u8>,
+    group_id: u32,
+    //group: Box<V1Group>,
+    image: u32,
+    title: String,
+    url: String,
+    username: String,
+    password: SecureString,
+    comment: String,
+    binary_desc: String,
+    binary: Vec<u8>,
+    creation: Tm,
+    last_mod: Tm,
+    last_access: Tm,
+    expire: Tm,
 }
 
 pub struct Tm {
@@ -92,8 +110,12 @@ impl V1Kpdb {
         let header = try!(V1Kpdb::read_header(path.clone()));
         let mut password = SecureString::new(password);
         let decrypted_database = try!(V1Kpdb::decrypt_database(path.clone(), &mut password, &header));
-        let groups = try!(V1Kpdb::parse_groups(&header, &decrypted_database));
-        Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header, groups: groups})
+
+        let mut pos: uint = 0;
+        let groups = try!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut pos));
+        let entries = try!(V1Kpdb::parse_entries(&header, &decrypted_database, &pos));
+        Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header, groups: groups,
+                    entries: entries})
     }
 
     fn read_header_(mut file: File) -> IoResult<V1Header> {
@@ -228,7 +250,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>) -> Result<Vec<Box<V1Group>>, V1KpdbError> {
+    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &mut uint) -> Result<Vec<Box<V1Group>>, V1KpdbError> {
         let mut pos: uint = 0;
         let mut group_number: u32 = 0;
         let mut levels: Vec<u16> = vec![];
@@ -242,33 +264,84 @@ impl V1Kpdb {
             field_type = try!(slice_to_u16(decrypted_database.slice(pos, pos + 2)));
             pos += 2;
 
-            if pos >= decrypted_database.len() {
+            if pos > decrypted_database.len() {
                 return Err(V1KpdbError::OffsetErr);
             }
 
             field_size = try!(slice_to_u32(decrypted_database.slice(pos, pos + 4)));
             pos += 4;
 
-            if pos >= decrypted_database.len() {
+            if pos > decrypted_database.len() {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            let _ = V1Kpdb::read_group_field(&mut cur_group, &mut levels, field_type, field_size, 
-                                         decrypted_database, pos);
+            let _ = V1Kpdb::read_group_field(&mut cur_group, field_type, field_size, 
+                                             decrypted_database, pos);
 
-            if field_type == 0xFFFF {
+            
+            if field_type == 0x0008 {
+                levels.push(cur_group.level);
+            } else if field_type == 0xFFFF {
                 groups.push(cur_group);
-                cur_group = box V1Group::new();
                 group_number += 1;
+                cur_group = box V1Group::new();
             }
 
             pos += field_size as uint;
-        }
 
+            if pos > decrypted_database.len() {
+                return Err(V1KpdbError::OffsetErr);
+            }
+        }
+        
+        *remembered_pos = pos;
         Ok(groups)
     }
 
-    fn read_group_field(group: &mut Box<V1Group>, levels: &mut Vec<u16>, field_type: u16, field_size: u32,
+    fn parse_entries(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &uint) -> Result<Vec<Box<V1Entry>>, V1KpdbError> {
+        let mut pos = *remembered_pos;
+        let mut entry_number: u32 = 0;
+        let mut cur_entry = box V1Entry::new();
+        let mut entries: Vec<Box<V1Entry>> = vec![];
+        
+        let mut field_type: u16;
+        let mut field_size: u32;
+
+        while entry_number < header.num_entries {
+            field_type = try!(slice_to_u16(decrypted_database.slice(pos, pos + 2)));
+            pos += 2;
+
+            if pos > decrypted_database.len() {
+                return Err(V1KpdbError::OffsetErr);
+            }
+
+            field_size = try!(slice_to_u32(decrypted_database.slice(pos, pos + 4)));
+            pos += 4;
+
+            if pos > decrypted_database.len() {
+                return Err(V1KpdbError::OffsetErr);
+            }
+
+            let _ = V1Kpdb::read_entry_field(&mut cur_entry, field_type, field_size, 
+                                             decrypted_database, pos);
+
+            if field_type == 0xFFFF {
+                entries.push(cur_entry);
+                entry_number += 1;
+                cur_entry = box V1Entry::new();
+            }
+
+            pos += field_size as uint;
+
+            if pos > decrypted_database.len() {
+                return Err(V1KpdbError::OffsetErr);
+            }
+        }
+
+        Ok(entries)
+    }
+
+    fn read_group_field(group: &mut Box<V1Group>, field_type: u16, field_size: u32,
                         decrypted_database: &Vec<u8>, pos: uint) -> Result<(), V1KpdbError> {
         let db_slice = if field_type == 0x0002 {
             decrypted_database.slice(pos, pos + (field_size - 1) as uint)
@@ -284,9 +357,36 @@ impl V1Kpdb {
             0x0005 => group.last_access = V1Kpdb::get_date(db_slice),
             0x0006 => group.expire = V1Kpdb::get_date(db_slice),
             0x0007 => group.image = try!(slice_to_u32(db_slice)),
-            0x0008 => { group.level = try!(slice_to_u16(db_slice)); 
-                        levels.push(group.level) },
+            0x0008 => group.level = try!(slice_to_u16(db_slice)),
             0x0009 => group.flags = try!(slice_to_u32(db_slice)),
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    fn read_entry_field(entry: &mut Box<V1Entry>, field_type: u16, field_size: u32,
+                        decrypted_database: &Vec<u8>, pos: uint) -> Result<(), V1KpdbError> {
+        let db_slice = match field_type {
+            0x0004 ... 0x0008 | 0x000D => decrypted_database.slice(pos, pos + (field_size - 1) as uint),
+            _ => decrypted_database.slice(pos, pos + field_size as uint),
+        };
+
+        match field_type {
+            0x0001 => entry.uuid = Vec::from_fn(field_size as uint , |i| db_slice[i]),
+            0x0002 => entry.group_id = try!(slice_to_u32(db_slice)),
+            0x0003 => entry.image = try!(slice_to_u32(db_slice)),
+            0x0004 => entry.title = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0005 => entry.url = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0006 => entry.username = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice).to_string()),
+            0x0008 => entry.comment = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0009 => entry.creation = V1Kpdb::get_date(db_slice),
+            0x000A => entry.last_mod = V1Kpdb::get_date(db_slice),
+            0x000B => entry.last_access = V1Kpdb::get_date(db_slice),
+            0x000C => entry.expire = V1Kpdb::get_date(db_slice),
+            0x000D => entry.binary_desc = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x000E => entry.binary = Vec::from_fn(field_size as uint, |i| db_slice[i]),
             _ => (),
         }
 
@@ -330,6 +430,27 @@ impl V1Group {
     }
 }
 
+impl V1Entry {
+    pub fn new() -> V1Entry {
+        V1Entry { uuid: vec![],
+                  group_id: 0,
+                  //group: Box<V1Group>,
+                  image: 0,
+                  title: "".to_string(),
+                  url: "".to_string(),
+                  username: "".to_string(),
+                  password: SecureString::new("".to_string()),
+                  comment: "".to_string(),
+                  binary_desc: "".to_string(),
+                  binary: vec![],
+                  creation: Tm::new(),
+                  last_mod: Tm::new(),
+                  last_access: Tm::new(),
+                  expire: Tm::new(),
+        }
+    }
+}
+
 impl Tm {
     pub fn new() -> Tm {
         Tm { year:   0,
@@ -349,6 +470,8 @@ mod tests {
 
     #[test]
     fn test_new() {
+        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).is_ok(), true);
+
         let mut db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).ok().unwrap();
         assert_eq!(db.path.as_slice(), "test/test_password.kdb");
         assert_eq!(db.password.string.as_slice(), "\0\0\0\0");
@@ -362,6 +485,8 @@ mod tests {
 
     #[test]
     fn test_read_header() {
+        assert_eq!(V1Kpdb::read_header("test/test_password.kdb".to_string()).is_ok(), true);
+
         let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
         assert_eq!(header.signature1, 0x9AA2D903u32);
         assert_eq!(header.signature2, 0xB54BFB65u32);
@@ -411,9 +536,13 @@ mod tests {
 
         let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
         let mut sec_str = SecureString::new("test".to_string());
+
+        assert_eq!(V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).is_ok(), true);
+
         let db_tmp = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
         let db_len = db_tmp.len();
         let db_clone = db_tmp.clone();
+        let test_clone = db_tmp.clone();
 
         let mut db_iter = db_tmp.into_iter();
         let db_iter2 = db_clone.into_iter();
@@ -422,29 +551,65 @@ mod tests {
         let test1 = Vec::from_fn(16, |_| db_iter.next().unwrap());
         let test2 = Vec::from_fn(16, |_| db_iter3.next().unwrap());
 
+        for i in test_clone.into_iter() {
+            print!("{:x} ", i);
+        }
+
         assert_eq!(test_content1, test1);
         assert_eq!(test_content2, test2);
     }
 
     #[test]
     fn test_parse_groups () {
-        let db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).ok().unwrap();
+        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut sec_str = SecureString::new("test".to_string());
+        let decrypted_database = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
 
-        assert_eq!(db.groups[0].id, 1);
-        assert_eq!(db.groups[0].title.as_slice(), "Internet");
-        assert_eq!(db.groups[0].image, 1);
-        assert_eq!(db.groups[0].level, 0);
-        assert_eq!(db.groups[0].creation.year, 0);
-        assert_eq!(db.groups[0].creation.month, 0);
-        assert_eq!(db.groups[0].creation.day, 0);
+        assert_eq!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).is_ok(), true);
 
-        assert_eq!(db.groups[1].id, 2);
-        assert_eq!(db.groups[1].title.as_slice(), "test");
-        assert_eq!(db.groups[1].image, 1);
-        assert_eq!(db.groups[1].level, 0);
-        assert_eq!(db.groups[1].creation.year, 2014);
-        assert_eq!(db.groups[1].creation.month, 2);
-        assert_eq!(db.groups[1].creation.day, 26);
+        let groups = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
+
+        assert_eq!(groups[0].id, 1);
+        assert_eq!(groups[0].title.as_slice(), "Internet");
+        assert_eq!(groups[0].image, 1);
+        assert_eq!(groups[0].level, 0);
+        assert_eq!(groups[0].creation.year, 0);
+        assert_eq!(groups[0].creation.month, 0);
+        assert_eq!(groups[0].creation.day, 0);
+
+        assert_eq!(groups[1].id, 2);
+        assert_eq!(groups[1].title.as_slice(), "test");
+        assert_eq!(groups[1].image, 1);
+        assert_eq!(groups[1].level, 0);
+        assert_eq!(groups[1].creation.year, 2014);
+        assert_eq!(groups[1].creation.month, 2);
+        assert_eq!(groups[1].creation.day, 26);
+    }
+
+    #[test]
+    fn test_parse_entries () {
+        let uuid: Vec<u8> = vec![0x0c, 0x31, 0xac, 0x94, 0x23, 0x47, 0x66, 0x36, 
+                                      0xb8, 0xc0, 0x42, 0x81, 0x5e, 0x5a, 0x14, 0x60];
+
+        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut sec_str = SecureString::new("test".to_string());
+        let decrypted_database = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
+
+        assert_eq!(V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138u).is_ok(), true);
+
+        let mut entries = V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138u).ok().unwrap();
+
+        entries[0].password.unlock();
+        assert_eq!(entries[0].uuid, uuid);
+        assert_eq!(entries[0].title.as_slice(), "foo");
+        assert_eq!(entries[0].url.as_slice(), "foo");
+        assert_eq!(entries[0].username.as_slice(), "foo");
+        assert_eq!(entries[0].password.string.as_slice(), "DLE\"H<JZ|E");
+        assert_eq!(entries[0].image, 1);
+        assert_eq!(entries[0].group_id, 1);
+        assert_eq!(entries[0].creation.year, 2014);
+        assert_eq!(entries[0].creation.month, 2);
+        assert_eq!(entries[0].creation.day, 26);
 
     }
 }
