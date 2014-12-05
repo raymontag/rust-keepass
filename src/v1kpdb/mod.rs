@@ -6,6 +6,7 @@ use std::io::{File, Open, Read, IoResult, SeekStyle};
 use std::ptr;
 use std::str;
 
+// Doc placeholder
 struct V1Header {
     signature1:        u32,
     signature2:        u32,
