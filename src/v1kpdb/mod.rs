@@ -21,17 +21,17 @@ struct V1Header {
     key_transf_rounds: u32,
 }
 
-pub struct V1Kpdb {
+pub struct V1Kpdb<'a> {
     path:     String,
     password: SecureString,
     keyfile:  String,
     header:   V1Header,
-    groups: Vec<Box<V1Group>>,
+    groups: Vec<Box<V1Group<'a>>>,
     entries: Vec<Box<V1Entry>>,
-    // root_group:
+    root_group: Box<V1Group<'a>>,
 }
 
-pub struct V1Group {
+pub struct V1Group<'a> {
     id:          u32, 
     title:       String,
     image:       u32,
@@ -41,8 +41,7 @@ pub struct V1Group {
     last_access: Tm,
     expire:      Tm,
     flags:       u32,
-    parent:      Box<Option<V1Group>>,
-    children:    Vec<Box<V1Group>>,
+    children:    Vec<&'a Box<V1Group<'a>>>,
     //entries: Vec<Box<V1Entry>>,
     //db: Box<Option<V1Kpdb>>,
 }
@@ -84,6 +83,7 @@ pub enum V1KpdbError {
     HashErr,
     ConvertErr,
     OffsetErr,
+    TreeErr,
 }
 
 fn slice_to_u16 (slice: &[u8]) -> Result<u16, V1KpdbError> {
@@ -106,17 +106,22 @@ fn slice_to_u32 (slice: &[u8]) -> Result<u32, V1KpdbError> {
     Ok(value | slice[0] as u32)
 }
 
-impl V1Kpdb {
-    pub fn new(path: String, password: String, keyfile: String) -> Result<V1Kpdb, V1KpdbError> {
-        let header = try!(V1Kpdb::read_header(path.clone()));
-        let mut password = SecureString::new(password);
-        let decrypted_database = try!(V1Kpdb::decrypt_database(path.clone(), &mut password, &header));
+impl<'a> V1Kpdb<'a> {
+    pub fn new(path: String, password: String, keyfile: String) -> V1Kpdb<'a> {
+        V1Kpdb { path: path, password: SecureString::new(password), keyfile: keyfile, header: V1Header::new(), 
+                 groups: vec![], entries: vec![], root_group: box V1Group::new() }
+    }
+
+    pub fn load(&'a mut self) -> Result<(), V1KpdbError> {
+        self.header = try!(V1Kpdb::read_header(self.path.clone()));
+        let decrypted_database = try!(V1Kpdb::decrypt_database(self.path.clone(), &mut self.password, &self.header));
 
         let mut pos: uint = 0;
-        let groups = try!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut pos));
-        let entries = try!(V1Kpdb::parse_entries(&header, &decrypted_database, &pos));
-        Ok(V1Kpdb { path: path, password: password, keyfile: keyfile, header: header, groups: groups,
-                    entries: entries})
+        let (groups, levels) = try!(V1Kpdb::parse_groups(&self.header, &decrypted_database, &mut pos));
+        self.groups = groups;
+        self.entries = try!(V1Kpdb::parse_entries(&self.header, &decrypted_database, &pos));
+        try!(V1Kpdb::create_group_tree(self, levels));
+        Ok(())
     }
 
     fn read_header_(mut file: File) -> IoResult<V1Header> {
@@ -251,7 +256,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &mut uint) -> Result<Vec<Box<V1Group>>, V1KpdbError> {
+    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &mut uint) -> Result<(Vec<Box<V1Group<'a>>>, Vec<u16>), V1KpdbError> {
         let mut pos: uint = 0;
         let mut group_number: u32 = 0;
         let mut levels: Vec<u16> = vec![];
@@ -299,7 +304,7 @@ impl V1Kpdb {
         }
         
         *remembered_pos = pos;
-        Ok(groups)
+        Ok((groups, levels))
     }
 
     fn parse_entries(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &uint) -> Result<Vec<Box<V1Entry>>, V1KpdbError> {
@@ -416,10 +421,61 @@ impl V1Kpdb {
 
         Tm { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
     }
+
+    fn create_group_tree<'a>(db: &'a mut V1Kpdb<'a>, levels: Vec<u16>) -> Result<(), V1KpdbError> {
+        // The whole function is broken, have to read about weak and strong references in Rust
+
+        // if levels[0] != 0 {
+        //     return Err(V1KpdbError::TreeErr);
+        // }
+        
+        // for i in range(0, db.groups.len()) {
+        //     if levels[i] == 0 {
+        //         // db.groups[i].parent = Some(&db.root_group);
+        //         db.root_group.children.push(&db.groups[i]);
+        //         continue;
+        //     }
+
+        //     let j = i - 1;
+        //     while j >= 0 {
+        //         if levels[j] < levels[i] {
+        //             if levels[j] - levels[i] != 1 {
+        //                 return Err(V1KpdbError::TreeErr);
+        //             }
+        //             // db.groups[i].parent = &db.groups[j];
+        //             db.groups[j].children.push(&db.groups[i]);
+        //             break;
+        //         }
+        //         if j == 0 {
+        //             return Err(V1KpdbError::TreeErr);
+        //         }
+        //         j -= 1;
+        //     }
+        // }
+
+        Ok(())
+    }
 }
 
-impl V1Group {
-    pub fn new() -> V1Group {
+impl V1Header {
+    pub fn new() -> V1Header {
+        V1Header { signature1:        0,
+                   signature2:        0,
+                   enc_flag:          0,
+                   version:           0,
+                   final_randomseed:  vec![],
+                   iv:                vec![],
+                   num_groups:        0,
+                   num_entries:       0,
+                   contents_hash:     vec![],
+                   transf_randomseed: vec![],
+                   key_transf_rounds: 0,
+        }
+    }
+}
+
+impl<'a> V1Group<'a> {
+    pub fn new() -> V1Group<'a> {
         V1Group { id:          0, 
                   title:       "".to_string(),
                   image:       0,
@@ -429,7 +485,7 @@ impl V1Group {
                   last_access: Tm::new(),
                   expire:      Tm::new(),
                   flags:       0,
-                  parent:      box None,
+                  //parent:      None,
                   children:    vec![],
                   //entries: Vec<V1Entry>,
                   //db: box None,
@@ -477,9 +533,10 @@ mod tests {
 
     #[test]
     fn test_new() {
-        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).is_ok(), true);
+        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).load().is_ok(), true);
 
-        let mut db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).ok().unwrap();
+        let mut db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string());
+        let _ = db.load();
         assert_eq!(db.path.as_slice(), "test/test_password.kdb");
         assert_eq!(db.password.string.as_slice(), "\0\0\0\0");
         assert_eq!(db.keyfile.as_slice(), "");
@@ -487,7 +544,7 @@ mod tests {
         db.password.unlock();
         assert_eq!(db.password.string.as_slice(), "test");
 
-        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "tes".to_string(), "".to_string()).is_err(), true);
+        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "tes".to_string(), "".to_string()).load().is_err(), true);
     }
 
     #[test]
@@ -574,7 +631,7 @@ mod tests {
 
         assert_eq!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).is_ok(), true);
 
-        let groups = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
+        let (groups, _) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
 
         assert_eq!(groups[0].id, 1);
         assert_eq!(groups[0].title.as_slice(), "Internet");
