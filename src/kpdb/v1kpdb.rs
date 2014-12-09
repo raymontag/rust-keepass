@@ -1,90 +1,27 @@
-use super::sec_str::SecureString;
 use libc::c_void;
-use openssl::crypto::hash::{Hasher, HashType};
-use openssl::crypto::symm;
 use std::io::{File, Open, Read, IoResult, SeekStyle};
 use std::ptr;
 use std::str;
 
-// Doc placeholder
-struct V1Header {
-    signature1:        u32,
-    signature2:        u32,
-    enc_flag:          u32,
-    version:           u32,
-    final_randomseed:  Vec<u8>,
-    iv:                Vec<u8>,
-    num_groups:        u32,
-    num_entries:       u32,
-    contents_hash:     Vec<u8>,
-    transf_randomseed: Vec<u8>,
-    key_transf_rounds: u32,
-}
+use openssl::crypto::hash::{Hasher, HashType};
+use openssl::crypto::symm;
+
+use super::v1error::V1KpdbError;
+use super::v1group::V1Group;
+use super::v1entry::V1Entry;
+use super::v1header::V1Header;
+use super::tm::Tm;
+use super::super::sec_str::SecureString;
 
 pub struct V1Kpdb<'a> {
-    path:     String,
-    password: SecureString,
-    keyfile:  String,
-    header:   V1Header,
-    groups: Vec<Box<V1Group<'a>>>,
-    entries: Vec<Box<V1Entry>>,
-    root_group: Box<V1Group<'a>>,
-}
-
-pub struct V1Group<'a> {
-    id:          u32, 
-    title:       String,
-    image:       u32,
-    level:       u16,
-    creation:    Tm,
-    last_mod:    Tm,
-    last_access: Tm,
-    expire:      Tm,
-    flags:       u32,
-    children:    Vec<&'a Box<V1Group<'a>>>,
-    //entries: Vec<Box<V1Entry>>,
-    //db: Box<Option<V1Kpdb>>,
-}
-
-pub struct V1Entry {
-    uuid: Vec<u8>,
-    group_id: u32,
-    //group: Box<V1Group>,
-    image: u32,
-    title: String,
-    url: String,
-    username: String,
-    password: SecureString,
-    comment: String,
-    binary_desc: String,
-    binary: Vec<u8>,
-    creation: Tm,
-    last_mod: Tm,
-    last_access: Tm,
-    expire: Tm,
-}
-
-pub struct Tm {
-    year:   i32,
-    month:  i32,
-    day:    i32,
-    hour:   i32,
-    minute: i32,
-    second: i32,
-}
-
-pub enum V1KpdbError {
-    FileErr,
-    ReadErr,
-    SignatureErr,
-    EncFlagErr,
-    VersionErr,
-    DecryptErr,
-    HashErr,
-    ConvertErr,
-    OffsetErr,
-    TreeErr,
-}
+    pub path:     String,
+    pub password: SecureString,
+    pub keyfile:  String,
+    pub header:   V1Header,
+    pub groups: Vec<Box<V1Group<'a>>>,
+    pub entries: Vec<Box<V1Entry>>,
+    pub root_group: Box<V1Group<'a>>,
+} 
 
 fn slice_to_u16 (slice: &[u8]) -> Result<u16, V1KpdbError> {
     if slice.len() < 2 {
@@ -113,7 +50,7 @@ impl<'a> V1Kpdb<'a> {
     }
 
     pub fn load(&'a mut self) -> Result<(), V1KpdbError> {
-        self.header = try!(V1Kpdb::read_header(self.path.clone()));
+        try!(self.header.read_header(self.path.clone()));
         let decrypted_database = try!(V1Kpdb::decrypt_database(self.path.clone(), &mut self.password, &self.header));
 
         let mut pos: uint = 0;
@@ -121,63 +58,6 @@ impl<'a> V1Kpdb<'a> {
         self.groups = groups;
         self.entries = try!(V1Kpdb::parse_entries(&self.header, &decrypted_database, &pos));
         try!(V1Kpdb::create_group_tree(self, levels));
-        Ok(())
-    }
-
-    fn read_header_(mut file: File) -> IoResult<V1Header> {
-        let signature1 = try!(file.read_le_u32());
-        let signature2 = try!(file.read_le_u32());
-        let enc_flag = try!(file.read_le_u32());
-        let version = try!(file.read_le_u32());
-        let final_randomseed = try!(file.read_exact(16u));
-        let iv = try!(file.read_exact(16u));
-        let num_groups = try!(file.read_le_u32());
-        let num_entries = try!(file.read_le_u32());
-        let contents_hash = try!(file.read_exact(32u));
-        let transf_randomseed = try!(file.read_exact(32u));
-        let key_transf_rounds = try!(file.read_le_u32());
-
-        Ok(V1Header { signature1: signature1,
-                      signature2: signature2,
-                      enc_flag: enc_flag,
-                      version: version,
-                      final_randomseed: final_randomseed,
-                      iv: iv,
-                      num_groups: num_groups,
-                      num_entries: num_entries,
-                      contents_hash: contents_hash,
-                      transf_randomseed: transf_randomseed,
-                      key_transf_rounds: key_transf_rounds })
-    }
-
-    fn read_header(path: String) -> Result<V1Header, V1KpdbError> {
-        let file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
-        let header = try!(V1Kpdb::read_header_(file).map_err(|_| V1KpdbError::ReadErr));
-        
-        try!(V1Kpdb::check_signatures(&header));
-        try!(V1Kpdb::check_enc_flag(&header));
-        try!(V1Kpdb::check_version(&header));
-        Ok(header)
-    }
-
-    fn check_signatures(header: &V1Header) -> Result<(), V1KpdbError> {
-        if header.signature1 != 0x9AA2D903u32 || header.signature2 != 0xB54BFB65u32 {
-            return Err(V1KpdbError::SignatureErr);
-        }
-        Ok(())
-    }
-
-    fn check_enc_flag(header: &V1Header) -> Result<(), V1KpdbError> {
-        if header.enc_flag & 2 != 2 {
-            return Err(V1KpdbError::EncFlagErr);
-        }
-        Ok(())
-    }
-
-    fn check_version(header: &V1Header) -> Result<(), V1KpdbError> {
-        if header.version != 0x00030002u32 {
-            return Err(V1KpdbError::VersionErr)
-        }
         Ok(())
     }
 
@@ -457,79 +337,11 @@ impl<'a> V1Kpdb<'a> {
     }
 }
 
-impl V1Header {
-    pub fn new() -> V1Header {
-        V1Header { signature1:        0,
-                   signature2:        0,
-                   enc_flag:          0,
-                   version:           0,
-                   final_randomseed:  vec![],
-                   iv:                vec![],
-                   num_groups:        0,
-                   num_entries:       0,
-                   contents_hash:     vec![],
-                   transf_randomseed: vec![],
-                   key_transf_rounds: 0,
-        }
-    }
-}
-
-impl<'a> V1Group<'a> {
-    pub fn new() -> V1Group<'a> {
-        V1Group { id:          0, 
-                  title:       "".to_string(),
-                  image:       0,
-                  level:       0,
-                  creation:    Tm::new(),
-                  last_mod:    Tm::new(),
-                  last_access: Tm::new(),
-                  expire:      Tm::new(),
-                  flags:       0,
-                  //parent:      None,
-                  children:    vec![],
-                  //entries: Vec<V1Entry>,
-                  //db: box None,
-        }
-    }
-}
-
-impl V1Entry {
-    pub fn new() -> V1Entry {
-        V1Entry { uuid: vec![],
-                  group_id: 0,
-                  //group: Box<V1Group>,
-                  image: 0,
-                  title: "".to_string(),
-                  url: "".to_string(),
-                  username: "".to_string(),
-                  password: SecureString::new("".to_string()),
-                  comment: "".to_string(),
-                  binary_desc: "".to_string(),
-                  binary: vec![],
-                  creation: Tm::new(),
-                  last_mod: Tm::new(),
-                  last_access: Tm::new(),
-                  expire: Tm::new(),
-        }
-    }
-}
-
-impl Tm {
-    pub fn new() -> Tm {
-        Tm { year:   0,
-             month:  0,
-             day:    0,
-             hour:   0,
-             minute: 0,
-             second: 0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::V1Kpdb;
-    use super::super::sec_str::SecureString;
+    use super::super::v1header::V1Header;
+    use super::super::super::sec_str::SecureString;
 
     #[test]
     fn test_new() {
@@ -548,28 +360,6 @@ mod tests {
     }
 
     #[test]
-    fn test_read_header() {
-        assert_eq!(V1Kpdb::read_header("test/test_password.kdb".to_string()).is_ok(), true);
-
-        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
-        assert_eq!(header.signature1, 0x9AA2D903u32);
-        assert_eq!(header.signature2, 0xB54BFB65u32);
-        assert_eq!(header.enc_flag & 2, 2);
-        assert_eq!(header.version, 0x00030002u32);
-        assert_eq!(header.num_groups, 2);
-        assert_eq!(header.num_entries, 1);
-        assert_eq!(header.key_transf_rounds, 150000);
-        assert_eq!(header.final_randomseed[0], 0xB0u8);
-        assert_eq!(header.final_randomseed[15], 0xE1u8);
-        assert_eq!(header.iv[0], 0x15u8);
-        assert_eq!(header.iv[15], 0xE5u8);
-        assert_eq!(header.contents_hash[0], 0xCBu8);
-        assert_eq!(header.contents_hash[15], 0x4Eu8);
-        assert_eq!(header.transf_randomseed[0], 0x69u8);
-        assert_eq!(header.transf_randomseed[15], 0x9Fu8);
-    }
-
-    #[test]
     fn test_passwordkey() {
         let testkey = vec![0x04, 0xE7, 0x22, 0xF6,
                            0x17, 0x1D, 0x5A, 0x4D,
@@ -580,7 +370,8 @@ mod tests {
                            0xDA, 0x9A, 0xA6, 0x09,
                            0x3E, 0x63, 0xC8, 0x70];
 
-        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_password.kdb".to_string());
         let mut sec_str = SecureString::new("test".to_string());
         let masterkey = V1Kpdb::get_passwordkey(&mut sec_str);
         let finalkey = V1Kpdb::transform_key(masterkey, &header);
@@ -598,7 +389,8 @@ mod tests {
                                           0x7E, 0xFB, 0xFF, 0xFF,
                                           0x00, 0x00, 0x00, 0x00];
 
-        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_password.kdb".to_string());
         let mut sec_str = SecureString::new("test".to_string());
 
         assert_eq!(V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).is_ok(), true);
@@ -625,7 +417,8 @@ mod tests {
 
     #[test]
     fn test_parse_groups () {
-        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_password.kdb".to_string());
         let mut sec_str = SecureString::new("test".to_string());
         let decrypted_database = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
 
@@ -655,7 +448,8 @@ mod tests {
         let uuid: Vec<u8> = vec![0x0c, 0x31, 0xac, 0x94, 0x23, 0x47, 0x66, 0x36, 
                                       0xb8, 0xc0, 0x42, 0x81, 0x5e, 0x5a, 0x14, 0x60];
 
-        let header = V1Kpdb::read_header("test/test_password.kdb".to_string()).ok().unwrap();
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_password.kdb".to_string());
         let mut sec_str = SecureString::new("test".to_string());
         let decrypted_database = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
 
