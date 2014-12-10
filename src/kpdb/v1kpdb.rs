@@ -1,6 +1,8 @@
 use libc::c_void;
+use std::cell::{RefCell, RefMut};
 use std::io::{File, Open, Read, IoResult, SeekStyle};
 use std::ptr;
+use std::rc::Rc;
 use std::str;
 
 use openssl::crypto::hash::{Hasher, HashType};
@@ -13,14 +15,14 @@ use super::v1header::V1Header;
 use super::tm::Tm;
 use super::super::sec_str::SecureString;
 
-pub struct V1Kpdb<'a> {
+pub struct V1Kpdb {
     pub path:     String,
     pub password: SecureString,
     pub keyfile:  String,
     pub header:   V1Header,
-    pub groups: Vec<Box<V1Group<'a>>>,
+    pub groups: Vec<Rc<RefCell<V1Group>>>,
     pub entries: Vec<Box<V1Entry>>,
-    pub root_group: Box<V1Group<'a>>,
+    pub root_group: Rc<RefCell<V1Group>>,
 } 
 
 fn slice_to_u16 (slice: &[u8]) -> Result<u16, V1KpdbError> {
@@ -43,13 +45,13 @@ fn slice_to_u32 (slice: &[u8]) -> Result<u32, V1KpdbError> {
     Ok(value | slice[0] as u32)
 }
 
-impl<'a> V1Kpdb<'a> {
-    pub fn new(path: String, password: String, keyfile: String) -> V1Kpdb<'a> {
+impl V1Kpdb {
+    pub fn new(path: String, password: String, keyfile: String) -> V1Kpdb {
         V1Kpdb { path: path, password: SecureString::new(password), keyfile: keyfile, header: V1Header::new(), 
-                 groups: vec![], entries: vec![], root_group: box V1Group::new() }
+                 groups: vec![], entries: vec![], root_group: Rc::new(RefCell::new(V1Group::new())) }
     }
 
-    pub fn load(&'a mut self) -> Result<(), V1KpdbError> {
+    pub fn load(&mut self) -> Result<(), V1KpdbError> {
         try!(self.header.read_header(self.path.clone()));
         let decrypted_database = try!(V1Kpdb::decrypt_database(self.path.clone(), &mut self.password, &self.header));
 
@@ -136,12 +138,12 @@ impl<'a> V1Kpdb<'a> {
         Ok(())
     }
 
-    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &mut uint) -> Result<(Vec<Box<V1Group<'a>>>, Vec<u16>), V1KpdbError> {
+    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &mut uint) -> Result<(Vec<Rc<RefCell<V1Group>>>, Vec<u16>), V1KpdbError> {
         let mut pos: uint = 0;
         let mut group_number: u32 = 0;
         let mut levels: Vec<u16> = vec![];
-        let mut cur_group = box V1Group::new();
-        let mut groups: Vec<Box<V1Group>> = vec![];
+        let mut cur_group = Rc::new(RefCell::new(V1Group::new()));
+        let mut groups: Vec<Rc<RefCell<V1Group>>> = vec![];
         
         let mut field_type: u16;
         let mut field_size: u32;
@@ -161,19 +163,19 @@ impl<'a> V1Kpdb<'a> {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            let _ = V1Kpdb::read_group_field(&mut cur_group, field_type, field_size, 
+            let _ = V1Kpdb::read_group_field(cur_group.borrow_mut(), field_type, field_size, 
                                              decrypted_database, pos);
 
             
             if field_type == 0x0008 {
-                levels.push(cur_group.level);
+                levels.push(cur_group.borrow().level);
             } else if field_type == 0xFFFF {
                 groups.push(cur_group);
                 group_number += 1;
                 if group_number == header.num_groups {
                     break;
                 };
-                cur_group = box V1Group::new();
+                cur_group = Rc::new(RefCell::new(V1Group::new()));
             }
 
             pos += field_size as uint;
@@ -233,7 +235,7 @@ impl<'a> V1Kpdb<'a> {
         Ok(entries)
     }
 
-    fn read_group_field(group: &mut Box<V1Group>, field_type: u16, field_size: u32,
+    fn read_group_field(mut group: RefMut<V1Group>, field_type: u16, field_size: u32,
                         decrypted_database: &Vec<u8>, pos: uint) -> Result<(), V1KpdbError> {
         let db_slice = if field_type == 0x0002 {
             decrypted_database.slice(pos, pos + (field_size - 1) as uint)
@@ -302,7 +304,7 @@ impl<'a> V1Kpdb<'a> {
         Tm { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
     }
 
-    fn create_group_tree<'a>(db: &'a mut V1Kpdb<'a>, levels: Vec<u16>) -> Result<(), V1KpdbError> {
+    fn create_group_tree(db: &mut V1Kpdb, levels: Vec<u16>) -> Result<(), V1KpdbError> {
         // The whole function is broken, have to read about weak and strong references in Rust
 
         // if levels[0] != 0 {
@@ -311,7 +313,7 @@ impl<'a> V1Kpdb<'a> {
         
         // for i in range(0, db.groups.len()) {
         //     if levels[i] == 0 {
-        //         // db.groups[i].parent = Some(&db.root_group);
+        //         db.groups[i].parent = Some(Rc::new(&db.root_group));
         //         db.root_group.children.push(&db.groups[i]);
         //         continue;
         //     }
@@ -426,21 +428,21 @@ mod tests {
 
         let (groups, _) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
 
-        assert_eq!(groups[0].id, 1);
-        assert_eq!(groups[0].title.as_slice(), "Internet");
-        assert_eq!(groups[0].image, 1);
-        assert_eq!(groups[0].level, 0);
-        assert_eq!(groups[0].creation.year, 0);
-        assert_eq!(groups[0].creation.month, 0);
-        assert_eq!(groups[0].creation.day, 0);
+        assert_eq!(groups[0].borrow().id, 1);
+        assert_eq!(groups[0].borrow().title.as_slice(), "Internet");
+        assert_eq!(groups[0].borrow().image, 1);
+        assert_eq!(groups[0].borrow().level, 0);
+        assert_eq!(groups[0].borrow().creation.year, 0);
+        assert_eq!(groups[0].borrow().creation.month, 0);
+        assert_eq!(groups[0].borrow().creation.day, 0);
 
-        assert_eq!(groups[1].id, 2);
-        assert_eq!(groups[1].title.as_slice(), "test");
-        assert_eq!(groups[1].image, 1);
-        assert_eq!(groups[1].level, 0);
-        assert_eq!(groups[1].creation.year, 2014);
-        assert_eq!(groups[1].creation.month, 2);
-        assert_eq!(groups[1].creation.day, 26);
+        assert_eq!(groups[1].borrow().id, 2);
+        assert_eq!(groups[1].borrow().title.as_slice(), "test");
+        assert_eq!(groups[1].borrow().image, 1);
+        assert_eq!(groups[1].borrow().level, 0);
+        assert_eq!(groups[1].borrow().creation.year, 2014);
+        assert_eq!(groups[1].borrow().creation.month, 2);
+        assert_eq!(groups[1].borrow().creation.day, 26);
     }
 
     #[test]

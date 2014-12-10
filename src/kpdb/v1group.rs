@@ -1,6 +1,8 @@
+use std::rc::Rc;
+
 use super::tm::Tm;
 
-pub struct V1Group<'a> {
+pub struct V1Group {
     pub id:          u32, 
     pub title:       String,
     pub image:       u32,
@@ -10,13 +12,14 @@ pub struct V1Group<'a> {
     pub last_access: Tm,
     pub expire:      Tm,
     pub flags:       u32,
-    pub children:    Vec<&'a Box<V1Group<'a>>>,
+    pub parent:      Option<Rc<V1Group>>,
+    //pub children:    Vec<Box<V1Group>>,
     //entries: Vec<Box<V1Entry>>,
     //db: Box<Option<V1Kpdb>>,
 }
 
-impl<'a> V1Group<'a> {
-    pub fn new() -> V1Group<'a> {
+impl V1Group {
+    pub fn new() -> V1Group {
         V1Group { id:          0, 
                   title:       "".to_string(),
                   image:       0,
@@ -26,8 +29,8 @@ impl<'a> V1Group<'a> {
                   last_access: Tm::new(),
                   expire:      Tm::new(),
                   flags:       0,
-                  //parent:      None,
-                  children:    vec![],
+                  parent:      None,
+                  //children:    vec![],
                   //entries: Vec<V1Entry>,
                   //db: box None,
         }
