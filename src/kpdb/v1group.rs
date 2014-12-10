@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use super::tm::Tm;
+use super::v1entry::V1Entry;
 
 pub struct V1Group {
     pub id:          u32, 
@@ -15,7 +16,7 @@ pub struct V1Group {
     pub flags:       u32,
     pub parent:      Option<Rc<RefCell<V1Group>>>,
     pub children:    Vec<Weak<RefCell<V1Group>>>,
-    //entries: Vec<Box<V1Entry>>,
+    pub entries: Vec<Weak<RefCell<V1Entry>>>,
     //db: Box<Option<V1Kpdb>>,
 }
 
@@ -32,7 +33,7 @@ impl V1Group {
                   flags:       0,
                   parent:      None,
                   children:    vec![],
-                  //entries: Vec<V1Entry>,
+                  entries: vec![],
                   //db: box None,
         }
     }

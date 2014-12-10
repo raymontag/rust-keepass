@@ -1,10 +1,14 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use super::tm::Tm;
+use super::v1group::V1Group;
 use super::super::sec_str::SecureString;
 
 pub struct V1Entry {
     pub uuid: Vec<u8>,
     pub group_id: u32,
-    //group: Box<V1Group>,
+    pub group: Option<Rc<RefCell<V1Group>>>,
     pub image: u32,
     pub title: String,
     pub url: String,
@@ -23,7 +27,7 @@ impl V1Entry {
     pub fn new() -> V1Entry {
         V1Entry { uuid: vec![],
                   group_id: 0,
-                  //group: Box<V1Group>,
+                  group: None,
                   image: 0,
                   title: "".to_string(),
                   url: "".to_string(),

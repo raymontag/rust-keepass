@@ -21,7 +21,7 @@ pub struct V1Kpdb {
     pub keyfile:  String,
     pub header:   V1Header,
     pub groups: Vec<Rc<RefCell<V1Group>>>,
-    pub entries: Vec<Box<V1Entry>>,
+    pub entries: Vec<Rc<RefCell<V1Entry>>>,
     pub root_group: Rc<RefCell<V1Group>>,
 } 
 
@@ -189,11 +189,11 @@ impl V1Kpdb {
         Ok((groups, levels))
     }
 
-    fn parse_entries(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &uint) -> Result<Vec<Box<V1Entry>>, V1KpdbError> {
+    fn parse_entries(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &uint) -> Result<Vec<Rc<RefCell<V1Entry>>>, V1KpdbError> {
         let mut pos = *remembered_pos;
         let mut entry_number: u32 = 0;
-        let mut cur_entry = box V1Entry::new();
-        let mut entries: Vec<Box<V1Entry>> = vec![];
+        let mut cur_entry = Rc::new(RefCell::new(V1Entry::new()));
+        let mut entries: Vec<Rc<RefCell<V1Entry>>> = vec![];
         
         let mut field_type: u16;
         let mut field_size: u32;
@@ -213,7 +213,7 @@ impl V1Kpdb {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            let _ = V1Kpdb::read_entry_field(&mut cur_entry, field_type, field_size, 
+            let _ = V1Kpdb::read_entry_field(cur_entry.borrow_mut(), field_type, field_size, 
                                              decrypted_database, pos);
 
             if field_type == 0xFFFF {
@@ -222,7 +222,7 @@ impl V1Kpdb {
                 if entry_number == header.num_entries {
                     break;
                 };
-                cur_entry = box V1Entry::new() 
+                cur_entry = Rc::new(RefCell::new(V1Entry::new()));
             }
 
             pos += field_size as uint;
@@ -259,7 +259,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn read_entry_field(entry: &mut Box<V1Entry>, field_type: u16, field_size: u32,
+    fn read_entry_field(mut entry: RefMut<V1Entry>, field_type: u16, field_size: u32,
                         decrypted_database: &Vec<u8>, pos: uint) -> Result<(), V1KpdbError> {
         let db_slice = match field_type {
             0x0004 ... 0x0008 | 0x000D => decrypted_database.slice(pos, pos + (field_size - 1) as uint),
@@ -330,6 +330,15 @@ impl V1Kpdb {
                     return Err(V1KpdbError::TreeErr);
                 }
                 j -= 1;
+            }
+        }
+
+        for e in db.entries.as_slice().iter() {
+            for g in db.groups.as_slice().iter() {
+                if e.borrow().group_id == g.borrow().id {
+                    g.borrow_mut().entries.push(e.clone().downgrade());
+                    e.borrow_mut().group = Some(g.clone());
+                }
             }
         }
 
@@ -457,18 +466,18 @@ mod tests {
 
         let mut entries = V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138u).ok().unwrap();
 
-        entries[0].password.unlock();
+        entries[0].borrow_mut().password.unlock();
 
-        assert_eq!(entries[0].uuid, uuid);
-        assert_eq!(entries[0].title.as_slice(), "foo");
-        assert_eq!(entries[0].url.as_slice(), "foo");
-        assert_eq!(entries[0].username.as_slice(), "foo");
-        assert_eq!(entries[0].password.string.as_slice(), "DLE\"H<JZ|E");
-        assert_eq!(entries[0].image, 1);
-        assert_eq!(entries[0].group_id, 1);
-        assert_eq!(entries[0].creation.year, 2014);
-        assert_eq!(entries[0].creation.month, 2);
-        assert_eq!(entries[0].creation.day, 26);
+        assert_eq!(entries[0].borrow().uuid, uuid);
+        assert_eq!(entries[0].borrow().title.as_slice(), "foo");
+        assert_eq!(entries[0].borrow().url.as_slice(), "foo");
+        assert_eq!(entries[0].borrow().username.as_slice(), "foo");
+        assert_eq!(entries[0].borrow().password.string.as_slice(), "DLE\"H<JZ|E");
+        assert_eq!(entries[0].borrow().image, 1);
+        assert_eq!(entries[0].borrow().group_id, 1);
+        assert_eq!(entries[0].borrow().creation.year, 2014);
+        assert_eq!(entries[0].borrow().creation.month, 2);
+        assert_eq!(entries[0].borrow().creation.day, 26);
     }
 
     #[test]
@@ -480,9 +489,17 @@ mod tests {
         let mut sec_str = SecureString::new("test".to_string());
         let decrypted_database = V1Kpdb::decrypt_database("test/test_parsing.kdb".to_string(), &mut sec_str, &header).ok().unwrap();
 
+        let mut pos = 0u;
+
         assert_eq!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).is_ok(), true);
-        let (groups, levels) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
+        let (groups, levels) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut pos).ok().unwrap();
         db.groups = groups;
+
+        let mut pos_cpy = pos;
+
+        assert_eq!(V1Kpdb::parse_entries(&header, &decrypted_database, &mut pos_cpy).is_ok(), true);
+        let entries = V1Kpdb::parse_entries(&header, &decrypted_database, &mut pos).ok().unwrap();
+        db.entries = entries;
 
         assert_eq!(V1Kpdb::create_group_tree(&mut db, levels).is_ok(), true);
 
@@ -496,5 +513,11 @@ mod tests {
         assert_eq!(db.groups[4].borrow_mut().children[1].upgrade().unwrap().borrow().title.as_slice(), "31");
         assert_eq!(db.groups[5].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
         assert_eq!(db.groups[6].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
+
+        assert_eq!(db.entries[0].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "Internet");
+        assert_eq!(db.entries[1].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "11");
+        assert_eq!(db.entries[2].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "12");
+        assert_eq!(db.entries[3].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "21");
+        assert_eq!(db.entries[4].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "22");
     }
 }
