@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use super::tm::Tm;
 
@@ -14,7 +14,7 @@ pub struct V1Group {
     pub expire:      Tm,
     pub flags:       u32,
     pub parent:      Option<Rc<RefCell<V1Group>>>,
-    //pub children:    Vec<Box<V1Group>>,
+    pub children:    Vec<Weak<RefCell<V1Group>>>,
     //entries: Vec<Box<V1Entry>>,
     //db: Box<Option<V1Kpdb>>,
 }
@@ -31,7 +31,7 @@ impl V1Group {
                   expire:      Tm::new(),
                   flags:       0,
                   parent:      None,
-                  //children:    vec![],
+                  children:    vec![],
                   //entries: Vec<V1Entry>,
                   //db: box None,
         }

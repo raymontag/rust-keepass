@@ -305,8 +305,6 @@ impl V1Kpdb {
     }
 
     fn create_group_tree(db: &mut V1Kpdb, levels: Vec<u16>) -> Result<(), V1KpdbError> {
-        // The whole function is broken, have to read about weak and strong references in Rust
-
         if levels[0] != 0 {
             return Err(V1KpdbError::TreeErr);
         }
@@ -314,7 +312,7 @@ impl V1Kpdb {
         for i in range(0, db.groups.len()) {
             if levels[i] == 0 {
                 db.groups[i].borrow_mut().parent = Some(db.root_group.clone());
-                // db.root_group.children.push(&db.groups[i]);
+                db.root_group.borrow_mut().children.push(db.groups[i].clone().downgrade());
                 continue;
             }
 
@@ -325,7 +323,7 @@ impl V1Kpdb {
                         return Err(V1KpdbError::TreeErr);
                     }
                     db.groups[i].borrow_mut().parent = Some(db.groups[j].clone());
-                    //db.groups[j].children.push(&db.groups[i]);
+                    db.groups[j].borrow_mut().children.push(db.groups[i].clone().downgrade());
                     break;
                 }
                 if j == 0 {
@@ -490,12 +488,12 @@ mod tests {
 
         assert_eq!(db.groups[1].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "Internet");
         assert_eq!(db.groups[2].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "Internet");
-        // assert_eq!(db.groups[2].borrow().children[0].borrow().title.as_slice(), "22");
-        // assert_eq!(db.groups[2].borrow().children[1].borrow().title.as_slice(), "21");
+        assert_eq!(db.groups[2].borrow_mut().children[0].upgrade().unwrap().borrow().title.as_slice(), "22");
+        assert_eq!(db.groups[2].borrow_mut().children[1].upgrade().unwrap().borrow().title.as_slice(), "21");
         assert_eq!(db.groups[3].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "11");
         assert_eq!(db.groups[4].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "11");
-        // assert_eq!(db.groups[4].children[0].title.as_slice(), "32");
-        // assert_eq!(db.groups[4].children[1].title, "31");
+        assert_eq!(db.groups[4].borrow_mut().children[0].upgrade().unwrap().borrow().title.as_slice(), "32");
+        assert_eq!(db.groups[4].borrow_mut().children[1].upgrade().unwrap().borrow().title.as_slice(), "31");
         assert_eq!(db.groups[5].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
         assert_eq!(db.groups[6].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
     }
