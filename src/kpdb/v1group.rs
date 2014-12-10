@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::tm::Tm;
@@ -12,7 +13,7 @@ pub struct V1Group {
     pub last_access: Tm,
     pub expire:      Tm,
     pub flags:       u32,
-    pub parent:      Option<Rc<V1Group>>,
+    pub parent:      Option<Rc<RefCell<V1Group>>>,
     //pub children:    Vec<Box<V1Group>>,
     //entries: Vec<Box<V1Entry>>,
     //db: Box<Option<V1Kpdb>>,

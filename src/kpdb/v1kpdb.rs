@@ -307,33 +307,33 @@ impl V1Kpdb {
     fn create_group_tree(db: &mut V1Kpdb, levels: Vec<u16>) -> Result<(), V1KpdbError> {
         // The whole function is broken, have to read about weak and strong references in Rust
 
-        // if levels[0] != 0 {
-        //     return Err(V1KpdbError::TreeErr);
-        // }
+        if levels[0] != 0 {
+            return Err(V1KpdbError::TreeErr);
+        }
         
-        // for i in range(0, db.groups.len()) {
-        //     if levels[i] == 0 {
-        //         db.groups[i].parent = Some(Rc::new(&db.root_group));
-        //         db.root_group.children.push(&db.groups[i]);
-        //         continue;
-        //     }
+        for i in range(0, db.groups.len()) {
+            if levels[i] == 0 {
+                db.groups[i].borrow_mut().parent = Some(db.root_group.clone());
+                // db.root_group.children.push(&db.groups[i]);
+                continue;
+            }
 
-        //     let j = i - 1;
-        //     while j >= 0 {
-        //         if levels[j] < levels[i] {
-        //             if levels[j] - levels[i] != 1 {
-        //                 return Err(V1KpdbError::TreeErr);
-        //             }
-        //             // db.groups[i].parent = &db.groups[j];
-        //             db.groups[j].children.push(&db.groups[i]);
-        //             break;
-        //         }
-        //         if j == 0 {
-        //             return Err(V1KpdbError::TreeErr);
-        //         }
-        //         j -= 1;
-        //     }
-        // }
+            let mut j = i - 1;
+            loop {
+                if levels[j] < levels[i] {
+                    if levels[i] - levels[j] != 1 {
+                        return Err(V1KpdbError::TreeErr);
+                    }
+                    db.groups[i].borrow_mut().parent = Some(db.groups[j].clone());
+                    //db.groups[j].children.push(&db.groups[i]);
+                    break;
+                }
+                if j == 0 {
+                    return Err(V1KpdbError::TreeErr);
+                }
+                j -= 1;
+            }
+        }
 
         Ok(())
     }
@@ -400,7 +400,7 @@ mod tests {
         let db_tmp = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
         let db_len = db_tmp.len();
         let db_clone = db_tmp.clone();
-        let test_clone = db_tmp.clone();
+        // let test_clone = db_tmp.clone();
 
         let mut db_iter = db_tmp.into_iter();
         let db_iter2 = db_clone.into_iter();
@@ -409,9 +409,9 @@ mod tests {
         let test1 = Vec::from_fn(16, |_| db_iter.next().unwrap());
         let test2 = Vec::from_fn(16, |_| db_iter3.next().unwrap());
 
-        for i in test_clone.into_iter() {
-            print!("{:x} ", i);
-        }
+        // for i in test_clone.into_iter() {
+        //     print!("{:x} ", i);
+        // }
 
         assert_eq!(test_content1, test1);
         assert_eq!(test_content2, test2);
@@ -471,5 +471,32 @@ mod tests {
         assert_eq!(entries[0].creation.year, 2014);
         assert_eq!(entries[0].creation.month, 2);
         assert_eq!(entries[0].creation.day, 26);
+    }
+
+    #[test]
+    fn test_create_group_tree() {
+        let mut db = V1Kpdb::new("test/test_parsing.kdb".to_string(), "test".to_string(), "".to_string());
+        
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_parsing.kdb".to_string());
+        let mut sec_str = SecureString::new("test".to_string());
+        let decrypted_database = V1Kpdb::decrypt_database("test/test_parsing.kdb".to_string(), &mut sec_str, &header).ok().unwrap();
+
+        assert_eq!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).is_ok(), true);
+        let (groups, levels) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
+        db.groups = groups;
+
+        assert_eq!(V1Kpdb::create_group_tree(&mut db, levels).is_ok(), true);
+
+        assert_eq!(db.groups[1].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "Internet");
+        assert_eq!(db.groups[2].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "Internet");
+        // assert_eq!(db.groups[2].borrow().children[0].borrow().title.as_slice(), "22");
+        // assert_eq!(db.groups[2].borrow().children[1].borrow().title.as_slice(), "21");
+        assert_eq!(db.groups[3].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "11");
+        assert_eq!(db.groups[4].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "11");
+        // assert_eq!(db.groups[4].children[0].title.as_slice(), "32");
+        // assert_eq!(db.groups[4].children[1].title, "31");
+        assert_eq!(db.groups[5].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
+        assert_eq!(db.groups[6].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
     }
 }
