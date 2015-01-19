@@ -92,13 +92,6 @@ impl Drop for SecureString {
     }
 }
 
-// Write "****" instead of secret things if SecureString is printed
-impl fmt::Show for SecureString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("****").map_err(|_| fmt::Error)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::SecureString;
@@ -158,13 +151,5 @@ mod tests {
         sec_str2.password = sec_str.password.clone();
         sec_str2.lock();
         assert_eq!(sec_str.encrypted_string, sec_str2.encrypted_string);
-    }
-
-    #[test]
-    fn test_logging() {
-        let str = "Hello, secret!".to_string();
-        let mut sec_str = SecureString::new(str);
-        sec_str.unlock();
-        assert_eq!(format!("{}", sec_str).as_slice(), "****");
     }
 }
