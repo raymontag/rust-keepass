@@ -30,7 +30,7 @@ fn slice_to_u16 (slice: &[u8]) -> Result<u16, V1KpdbError> {
         return Err(V1KpdbError::ConvertErr);
     }
 
-    let value = slice[1] as u16 << 8;
+    let value = (slice[1] as u16) << 8;
     Ok(value | slice[0] as u16)
 }
 
@@ -39,9 +39,9 @@ fn slice_to_u32 (slice: &[u8]) -> Result<u32, V1KpdbError> {
         return Err(V1KpdbError::ConvertErr);
     }
     
-    let mut value = slice[3] as u32 << 24;
-    value |= slice[2] as u32 << 16;
-    value |= slice[1] as u32 << 8;
+    let mut value = (slice[3] as u32) << 24;
+    value |= (slice[2] as u32) << 16;
+    value |= (slice[1] as u32) << 8;
     Ok(value | slice[0] as u32)
 }
 
@@ -111,15 +111,15 @@ impl V1Kpdb {
     }
 
     fn decrypt_it(finalkey: Vec<u8>, crypted_database: Vec<u8>, header: &V1Header) -> Vec<u8> {
-        let db_tmp = symm::decrypt(symm::Type::AES_256_CBC, finalkey.as_slice(), header.iv.clone(), 
+        let mut db_tmp = symm::decrypt(symm::Type::AES_256_CBC, finalkey.as_slice(), header.iv.clone(), 
                                    crypted_database.as_slice());
 
         unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void, finalkey.len()) };
 
         let padding = db_tmp[db_tmp.len() - 1] as uint;
-        let length = db_tmp.len(); 
-        let mut db_iter = db_tmp.into_iter().take(length - padding);
-        Vec::from_fn(length - padding, |_| db_iter.next().unwrap())
+        let length = db_tmp.len();
+        db_tmp.resize(length-padding, 0);
+        db_tmp
     }
 
     fn check_decryption_success(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
@@ -267,7 +267,7 @@ impl V1Kpdb {
         };
 
         match field_type {
-            0x0001 => entry.uuid = Vec::from_fn(field_size as uint , |i| db_slice[i]),
+            0x0001 => entry.uuid = (0..field_size as uint).map(|i| db_slice[i]).collect(),
             0x0002 => entry.group_id = try!(slice_to_u32(db_slice)),
             0x0003 => entry.image = try!(slice_to_u32(db_slice)),
             0x0004 => entry.title = str::from_utf8(db_slice).unwrap_or("").to_string(),
@@ -280,7 +280,7 @@ impl V1Kpdb {
             0x000B => entry.last_access = V1Kpdb::get_date(db_slice),
             0x000C => entry.expire = V1Kpdb::get_date(db_slice),
             0x000D => entry.binary_desc = str::from_utf8(db_slice).unwrap_or("").to_string(),
-            0x000E => entry.binary = Vec::from_fn(field_size as uint, |i| db_slice[i]),
+            0x000E => entry.binary = (0..field_size as uint).map(|i| db_slice[i]).collect(),
             _ => (),
         }
 
@@ -412,9 +412,9 @@ mod tests {
         let mut db_iter = db_tmp.into_iter();
         let db_iter2 = db_clone.into_iter();
         let mut db_iter3 = db_iter2.skip(db_len - 16);
-        
-        let test1 = Vec::from_fn(16, |_| db_iter.next().unwrap());
-        let test2 = Vec::from_fn(16, |_| db_iter3.next().unwrap());
+
+        let test1: Vec<u8> = (0..16).map(|_| db_iter.next().unwrap()).collect();
+        let test2: Vec<u8> = (0..16).map(|_| db_iter3.next().unwrap()).collect();
 
         // for i in test_clone.into_iter() {
         //     print!("{:x} ", i);
