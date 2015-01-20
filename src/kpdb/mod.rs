@@ -1,7 +1,7 @@
-mod v1kpdb;
-mod v1error;
-mod v1group;
-mod v1entry;
-mod v1header;
-mod tm;
+pub mod v1kpdb;
+pub mod v1error;
+pub mod v1group;
+pub mod v1entry;
+pub mod v1header;
+pub mod tm;
 

@@ -2,21 +2,41 @@ use std::io::{File, Open, Read, IoResult, SeekStyle};
 
 use super::v1error::V1KpdbError;
 
+#[doc = "
+V1Header implements the header of a KeePass v1.x database.
+Normally you don't need to mess with this yourself.
+"]
 pub struct V1Header {
+    /// File signature
     pub signature1:        u32,
+    /// File signature
     pub signature2:        u32,
+    /// Describes which encryption algorithm was used.
+    /// 0b10 is for AES, 0b1000 is for Twofish (not
+    /// supported, yet)
     pub enc_flag:          u32,
+    /// Version of the database. 0x00030002 is for v1.x
     pub version:           u32,
+    /// A seed used to create the final key
     pub final_randomseed:  Vec<u8>,
+    /// IV for AEC_CBC to de-/encrypt the database
     pub iv:                Vec<u8>,
+    /// Total number of groups in database
     pub num_groups:        u32,
+    /// Total number of entries in database
     pub num_entries:       u32,
+    /// Hash of the encrypted content to check success
+    /// of decryption
     pub contents_hash:     Vec<u8>,
+    /// A seed used to create the final key
     pub transf_randomseed: Vec<u8>,
+    /// Specifies number of rounds of AES_ECB to create
+    /// the final key
     pub key_transf_rounds: u32,
 }
 
 impl V1Header {
+    /// Use this to create a new empty header
     pub fn new() -> V1Header {
         V1Header { signature1:        0,
                    signature2:        0,
@@ -32,6 +52,7 @@ impl V1Header {
         }
     }
 
+    // Used to read header. Needed to wrap IoResult
     fn read_header_(mut file: File) -> IoResult<V1Header> {
         let signature1 = try!(file.read_le_u32());
         let signature2 = try!(file.read_le_u32());
@@ -58,7 +79,9 @@ impl V1Header {
                       key_transf_rounds: key_transf_rounds })
     }
 
+    /// Use this to read the header in. path is the filepath of the database
     pub fn read_header(&mut self, path: String) -> Result<(), V1KpdbError> {
+        // Map IoResult to Result with V1KpdbError
         let file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
         *self = try!(V1Header::read_header_(file).map_err(|_| V1KpdbError::ReadErr));
         
@@ -68,6 +91,7 @@ impl V1Header {
         Ok(())
     }
 
+    // Checks file signatures
     fn check_signatures(header: &V1Header) -> Result<(), V1KpdbError> {
         if header.signature1 != 0x9AA2D903u32 || header.signature2 != 0xB54BFB65u32 {
             return Err(V1KpdbError::SignatureErr);
@@ -75,6 +99,7 @@ impl V1Header {
         Ok(())
     }
 
+    // Checks encryption flag
     fn check_enc_flag(header: &V1Header) -> Result<(), V1KpdbError> {
         if header.enc_flag & 2 != 2 {
             return Err(V1KpdbError::EncFlagErr);
@@ -82,6 +107,7 @@ impl V1Header {
         Ok(())
     }
 
+    // Checks database version
     fn check_version(header: &V1Header) -> Result<(), V1KpdbError> {
         if header.version != 0x00030002u32 {
             return Err(V1KpdbError::VersionErr)

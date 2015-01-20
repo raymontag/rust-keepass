@@ -27,11 +27,13 @@ V1Kpdb implements a KeePass v1.x database. Some notes on the file format:
   dates to remind that the password should be changed after some period
 
 TODO:
+
 * mlock() critical parts
 * zero out decrypted database after parsing
 * keyfile support
 * saving
 * editing
+
 "]
 pub struct V1Kpdb {
     /// Filepath of the database
@@ -47,7 +49,7 @@ pub struct V1Kpdb {
     pub groups: Vec<Rc<RefCell<V1Group>>>,
     /// The entries of the whole database
     pub entries: Vec<Rc<RefCell<V1Entry>>>,
-    /// A group which holds all groups of level 1
+    /// A group which holds all groups of level 0
     /// as a subgroup (all groups which are not a
     /// subgroup of another group )
     pub root_group: Rc<RefCell<V1Group>>,
