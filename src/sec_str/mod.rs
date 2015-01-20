@@ -1,23 +1,8 @@
 use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use openssl::crypto::symm;
-use std::fmt;
 use std::ptr;
 use std::rand;
-
-// Needed to overwrite vectors of type Vec<u8> in place. Vec<T>'s clear-method
-// isn't sufficent as it just adjusts the length of the memory.
-// It's named after std::slice::bytes::MutableByteVector, because maybe this
-// is implemented directly for vectors in future
-trait MutableByteVector {
-    fn set_memory(&mut self, value: u8);
-}
-
-impl MutableByteVector for Vec<u8> {
-    fn set_memory(&mut self, value: u8) {
-        unsafe { ptr::set_memory(self.as_ptr() as *mut c_void, value, self.len()) };
-    }
-}
 
 #[doc = "
 SecureString implements a secure string. This means in particular:
@@ -88,23 +73,30 @@ impl SecureString {
 impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
-        self.encrypted_string.set_memory(0u8);
+        unsafe { ptr::zero_memory(self.encrypted_string.as_ptr() as *mut c_void,
+                                  self.encrypted_string.len()) };
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::SecureString;
-    use super::MutableByteVector;
     use std::str;
+    use std::ptr::copy_memory;
 
     #[test]
-    fn test_set_memory() {
-        let mut vec = vec![1u8, 2u8, 3u8];
-        vec.set_memory(0u8);
-        assert_eq!(vec, vec![0u8, 0u8, 0u8]);
+    fn test_drop() {
+        let mut test_vec: Vec<u8> = Vec::with_capacity(4);
+        unsafe {
+            test_vec.set_len(4);
+            let str = "drop".to_string();
+            let sec_str = SecureString::new(str);
+            let enc_str_ptr = sec_str.encrypted_string.as_ptr();
+            drop(sec_str);
+            copy_memory(test_vec.as_mut_ptr(), enc_str_ptr, 4);
+        }
+        assert_eq!(test_vec, vec![0u8, 0u8, 0u8, 0u8]);
     }
-
     #[test]
     fn test_new() {
         let str = "Hello, box!".to_string();
