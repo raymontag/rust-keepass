@@ -37,12 +37,12 @@ impl V1Header {
         let signature2 = try!(file.read_le_u32());
         let enc_flag = try!(file.read_le_u32());
         let version = try!(file.read_le_u32());
-        let final_randomseed = try!(file.read_exact(16u));
-        let iv = try!(file.read_exact(16u));
+        let final_randomseed = try!(file.read_exact(16us));
+        let iv = try!(file.read_exact(16us));
         let num_groups = try!(file.read_le_u32());
         let num_entries = try!(file.read_le_u32());
-        let contents_hash = try!(file.read_exact(32u));
-        let transf_randomseed = try!(file.read_exact(32u));
+        let contents_hash = try!(file.read_exact(32us));
+        let transf_randomseed = try!(file.read_exact(32us));
         let key_transf_rounds = try!(file.read_le_u32());
 
         Ok(V1Header { signature1: signature1,

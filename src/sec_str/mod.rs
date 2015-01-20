@@ -21,7 +21,10 @@ SecureString implements a secure string. This means in particular:
   access the plaintext string only via the string value.
 "]
 pub struct SecureString {
-    // Use String as type to move ownership to the struct
+    /// Holds the decrypted string if unlock() is called.
+    /// Don't forget to call delete if you don't need the decrypted
+    /// string anymore.
+    /// Use String as type to move ownership to the struct.
     pub string: String,
     // Use of Vec instead of &[u8] because specific lifetimes aren't needed
     encrypted_string: Vec<u8>,
