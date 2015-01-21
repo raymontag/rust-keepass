@@ -1,4 +1,5 @@
-use libc::c_void;
+use libc::{c_void, size_t};
+use libc::funcs::posix88::mman;
 use std::cell::{RefCell, RefMut};
 use std::io::{File, Open, Read, SeekStyle};
 use std::ptr;
@@ -28,8 +29,6 @@ V1Kpdb implements a KeePass v1.x database. Some notes on the file format:
 
 TODO:
 
-* mlock() critical parts
-* zero out decrypted database after parsing
 * keyfile support
 * saving
 * editing
@@ -41,7 +40,7 @@ pub struct V1Kpdb {
     /// Password of the database
     pub password: SecureString,
     /// Filepath of the keyfile
-    pub keyfile:  String,
+    pub keyfile:  SecureString,
     /// Holds the header. Normally you don't need
     /// to manipulate this yourself
     pub header:   V1Header,
@@ -86,8 +85,8 @@ impl V1Kpdb {
     /// would lie in the memory though
     pub fn new(path: String, password: String, keyfile: String) -> V1Kpdb {
         V1Kpdb { path: path, password: SecureString::new(password),
-                 keyfile: keyfile, header: V1Header::new(), groups: vec![],
-                 entries: vec![],
+                 keyfile: SecureString::new(keyfile), header: V1Header::new(),
+                 groups: vec![], entries: vec![],
                  root_group: Rc::new(RefCell::new(V1Group::new())) }
     }
 
@@ -95,14 +94,26 @@ impl V1Kpdb {
     pub fn load(&mut self) -> Result<(), V1KpdbError> {
         // First read header and decrypt the database
         try!(self.header.read_header(self.path.clone()));
-        let decrypted_database = try!(V1Kpdb::decrypt_database(self.path.clone(), &mut self.password, &self.header));
-
+        let decrypted_database = try!(V1Kpdb::decrypt_database(self.path.clone(),
+                                                               &mut self.password,
+                                                               &self.header));
+        // Prevent swapping of raw data
+        unsafe { mman::mlock(decrypted_database.as_ptr() as *const c_void,
+                             decrypted_database.len() as size_t); } 
+        
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
         let mut pos: usize = 0;
         let (groups, levels) = try!(V1Kpdb::parse_groups(&self.header, &decrypted_database, &mut pos));
         self.groups = groups;
         self.entries = try!(V1Kpdb::parse_entries(&self.header, &decrypted_database, &pos));
+
+        // Zero out raw data as it's not needed anymore
+        unsafe { ptr::zero_memory(self.decrypted_database.as_ptr() as *mut c_void,
+                                  self.decrypted_database.len());
+                 mman::munlock(decrypted_database.as_ptr() as *const c_void,
+                               decrypted_database.len() as size_t); }
+        
         // Now create the group tree and sort the entries to their groups
         try!(V1Kpdb::create_group_tree(self, levels));
         Ok(())
@@ -116,8 +127,17 @@ impl V1Kpdb {
 
         // Create the key and decrypt the database finally
         let masterkey = V1Kpdb::get_passwordkey(password);
+        unsafe { mman::mlock(masterkey.as_ptr() as *const c_void,
+                             masterkey.len() as size_t); } 
         let finalkey = V1Kpdb::transform_key(masterkey, header);
+        unsafe { mman::mlock(finalkey.as_ptr() as *const c_void,
+                             finalkey.len() as size_t); } 
         let decrypted_database = V1Kpdb::decrypt_it(finalkey, crypted_database, header);
+        unsafe { mman::munlock(masterkey.as_ptr() as *const c_void,
+                               masterkey.len() as size_t);
+                 mman::munlock(finalkey.as_ptr() as *const c_void,
+                               finalkey.len() as size_t);}
+
 
         try!(V1Kpdb::check_decryption_success(header, &decrypted_database));
         try!(V1Kpdb::check_content_hash(header, &decrypted_database));
@@ -127,12 +147,14 @@ impl V1Kpdb {
 
     // Hash the password string to create a decryption key from that
     fn get_passwordkey(password: &mut SecureString) -> Vec<u8> {
-        // password.string.as_bytes() is secure as just a reference is returned
+        // unlock SecureString
         password.unlock();
+        // password.string.as_bytes() is secure as just a reference is returned
         let password_string = password.string.as_bytes();
 
         let mut hasher = Hasher::new(HashType::SHA256);
         hasher.update(password_string);
+        // Zero out plaintext password
         password.delete();
 
         hasher.finalize()

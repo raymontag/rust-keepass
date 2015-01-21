@@ -43,6 +43,8 @@ impl SecureString {
         let mut sec_str = SecureString { string: string, encrypted_string: vec![],
                                          password: (0..32).map(|_| rand::random::<u8>()).collect(),
                                          iv: (0..32).map(|_| rand::random::<u8>()).collect() };
+        unsafe { mman::mlock(sec_str.encrypted_string.as_ptr() as *const c_void,
+                             sec_str.encrypted_string.len() as size_t); }
         sec_str.lock();
         sec_str.delete();
         sec_str
@@ -56,19 +58,25 @@ impl SecureString {
         // We couldn't find documentation if overwriting a string with a string of the
         // same length will leave the original string or really manipulating the original
         // one.
-        unsafe { ptr::zero_memory(self.string.as_ptr() as *mut c_void, self.string.len()) };
+        unsafe { ptr::zero_memory(self.string.as_ptr() as *mut c_void,
+                                  self.string.len()) };
     }
     
     fn lock(&mut self) {
-        self.encrypted_string = symm::encrypt(symm::Type::AES_256_CBC, self.password.as_slice(),
-                                              self.iv.clone(), self.string.as_bytes());
+        self.encrypted_string = symm::encrypt(symm::Type::AES_256_CBC,
+                                              self.password.as_slice(),
+                                              self.iv.clone(),
+                                              self.string.as_bytes());
     }
 
     /// Unlock the string, i.e. decrypt it and make it available via the string value.
     /// Don't forget to call delete() if you don't need the plain text anymore.
     pub fn unlock(&mut self) {
-        self.string = String::from_utf8(symm::decrypt(symm::Type::AES_256_CBC, self.password.as_slice(),
-                                                      self.iv.clone(), self.encrypted_string.as_slice())).unwrap();
+        self.string = String::from_utf8(symm::decrypt(symm::Type::AES_256_CBC,
+                                                      self.password.as_slice(),
+                                                      self.iv.clone(),
+                                                      self.encrypted_string.as_slice())
+                                        ).unwrap();
     }
 }
 
@@ -76,8 +84,12 @@ impl SecureString {
 impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
+        unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
+                              self.string.len() as size_t); }
         unsafe { ptr::zero_memory(self.encrypted_string.as_ptr() as *mut c_void,
                                   self.encrypted_string.len()) };
+        unsafe { mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
+                               self.encrypted_string.len() as size_t); }
     }
 }
 
@@ -89,16 +101,20 @@ mod tests {
 
     #[test]
     fn test_drop() {
-        let mut test_vec: Vec<u8> = Vec::with_capacity(4);
+        let mut test_vec:  Vec<u8> = Vec::with_capacity(4);
+        let mut test_vec2: Vec<u8> = Vec::with_capacity(4);
         unsafe {
             test_vec.set_len(4);
             let str = "drop".to_string();
             let sec_str = SecureString::new(str);
             let enc_str_ptr = sec_str.encrypted_string.as_ptr();
+            let str_ptr = sec_str.string.as_ptr();
             drop(sec_str);
             copy_memory(test_vec.as_mut_ptr(), enc_str_ptr, 4);
+            copy_memory(test_vec2.as_mut_ptr(), str_ptr, 4);
         }
-        assert_eq!(test_vec, vec![0u8, 0u8, 0u8, 0u8]);
+        assert_eq!(test_vec,  vec![0u8, 0u8, 0u8, 0u8]);
+        assert_eq!(test_vec2, vec![0u8, 0u8, 0u8, 0u8]);
     }
     #[test]
     fn test_new() {
