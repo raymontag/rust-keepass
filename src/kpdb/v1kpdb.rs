@@ -109,8 +109,8 @@ impl V1Kpdb {
         self.entries = try!(V1Kpdb::parse_entries(&self.header, &decrypted_database, &pos));
 
         // Zero out raw data as it's not needed anymore
-        unsafe { ptr::zero_memory(self.decrypted_database.as_ptr() as *mut c_void,
-                                  self.decrypted_database.len());
+        unsafe { ptr::zero_memory(decrypted_database.as_ptr() as *mut c_void,
+                                  decrypted_database.len());
                  mman::munlock(decrypted_database.as_ptr() as *const c_void,
                                decrypted_database.len() as size_t); }
         
@@ -133,11 +133,6 @@ impl V1Kpdb {
         unsafe { mman::mlock(finalkey.as_ptr() as *const c_void,
                              finalkey.len() as size_t); } 
         let decrypted_database = V1Kpdb::decrypt_it(finalkey, crypted_database, header);
-        unsafe { mman::munlock(masterkey.as_ptr() as *const c_void,
-                               masterkey.len() as size_t);
-                 mman::munlock(finalkey.as_ptr() as *const c_void,
-                               finalkey.len() as size_t);}
-
 
         try!(V1Kpdb::check_decryption_success(header, &decrypted_database));
         try!(V1Kpdb::check_content_hash(header, &decrypted_database));
@@ -177,7 +172,9 @@ impl V1Kpdb {
         hasher.update(masterkey.as_slice());
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void, masterkey.len()) };
+        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void, masterkey.len());
+                 mman::munlock(masterkey.as_ptr() as *const c_void,
+                               masterkey.len() as size_t); }
 
         hasher.finalize()
     }
@@ -188,7 +185,9 @@ impl V1Kpdb {
                                    crypted_database.as_slice());
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void, finalkey.len()) };
+        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void, finalkey.len());
+                 mman::munlock(finalkey.as_ptr() as *const c_void,
+                               finalkey.len() as size_t); }
 
         // Delete padding from decrypted data
         let padding = db_tmp[db_tmp.len() - 1] as usize;
@@ -453,7 +452,7 @@ mod tests {
         let _ = db.load();
         assert_eq!(db.path.as_slice(), "test/test_password.kdb");
         assert_eq!(db.password.string.as_slice(), "\0\0\0\0");
-        assert_eq!(db.keyfile.as_slice(), "");
+        assert_eq!(db.keyfile.string.as_slice(), "");
 
         db.password.unlock();
         assert_eq!(db.password.string.as_slice(), "test");

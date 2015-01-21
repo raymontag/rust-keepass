@@ -105,6 +105,7 @@ mod tests {
         let mut test_vec2: Vec<u8> = Vec::with_capacity(4);
         unsafe {
             test_vec.set_len(4);
+            test_vec2.set_len(4);
             let str = "drop".to_string();
             let sec_str = SecureString::new(str);
             let enc_str_ptr = sec_str.encrypted_string.as_ptr();
