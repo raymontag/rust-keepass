@@ -1,9 +1,15 @@
+use std::fmt;
+use std::error;
+
+pub use self::V1KpdbError::*;
+
 #[doc = "
 Use this for catching various errors that
 can happen when using V1Kpdb.
 "]
+#[derive(Show, Clone, PartialEq, Eq)]
 pub enum V1KpdbError {
-    /// Couldn't open the database or file is to
+    /// E.g. Couldn't open a file or file is to
     /// small.
     FileErr,
     /// Something went wrong while the database is
@@ -27,4 +33,27 @@ pub enum V1KpdbError {
     OffsetErr,
     /// Group tree is corrupted
     TreeErr,
+}
+
+impl fmt::Display for V1KpdbError {
+     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+         fmt.write_str(error::Error::description(self))
+     }
+}
+
+impl error::Error for V1KpdbError {
+    fn description(&self) -> &str {
+        match *self {
+            FileErr => "Couldn't open file or database is too small",
+            ReadErr => "Couldn't read file",
+            SignatureErr => "File signature in header is wrong",
+            EncFlagErr => "Encryption algorithm not supported",
+            VersionErr => "Wrong database version",
+            DecryptErr => "Something went wrong during decryption",
+            HashErr => "Content's hash is wrong, probably wrong password",
+            ConvertErr => "Some error while parsing the database",
+            OffsetErr => "Some error while parsing the database. Probably a corrupted file",
+            TreeErr => "Group tree is corrupted",
+        }
+    }
 }
