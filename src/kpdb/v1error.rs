@@ -33,6 +33,8 @@ pub enum V1KpdbError {
     OffsetErr,
     /// Group tree is corrupted
     TreeErr,
+    /// Password and/or keyfile needed but at least one of both
+    PassErr,
 }
 
 impl fmt::Display for V1KpdbError {
@@ -54,6 +56,7 @@ impl error::Error for V1KpdbError {
             ConvertErr => "Some error while parsing the database",
             OffsetErr => "Some error while parsing the database. Probably a corrupted file",
             TreeErr => "Group tree is corrupted",
+            PassErr => "Password and/or keyfile needed but at least one of both",
         }
     }
 }

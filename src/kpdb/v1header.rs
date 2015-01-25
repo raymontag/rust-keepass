@@ -1,4 +1,4 @@
-use std::io::{File, Open, Read, IoResult, SeekStyle};
+use std::io::{File, Open, Read, IoResult};
 
 use super::v1error::V1KpdbError;
 

@@ -16,3 +16,7 @@ doc = true
 [dependencies.openssl]
 
 git = "https://github.com/sfackler/rust-openssl.git"
+
+[dependencies]
+
+rustc-serialize = "0.2"

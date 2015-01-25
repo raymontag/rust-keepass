@@ -2,12 +2,14 @@ use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use std::cell::{RefCell, RefMut};
 use std::io::{File, Open, Read, SeekStyle};
+use std::io::IoErrorKind::EndOfFile;
 use std::ptr;
 use std::rc::Rc;
 use std::str;
 
 use openssl::crypto::hash::{Hasher, HashType};
 use openssl::crypto::symm;
+use rustc_serialize::hex::FromHex;
 
 use super::v1error::V1KpdbError;
 use super::v1group::V1Group;
@@ -29,18 +31,17 @@ V1Kpdb implements a KeePass v1.x database. Some notes on the file format:
 
 TODO:
 
-* keyfile support
 * saving
 * editing
-
+* get rid of unwrap and use more pattern matching
 "]
 pub struct V1Kpdb {
     /// Filepath of the database
     pub path:     String,
     /// Password of the database
-    pub password: SecureString,
+    pub password: Option<SecureString>,
     /// Filepath of the keyfile
-    pub keyfile:  SecureString,
+    pub keyfile:  Option<SecureString>,
     /// Holds the header. Normally you don't need
     /// to manipulate this yourself
     pub header:   V1Header,
@@ -83,11 +84,23 @@ impl V1Kpdb {
     /// password should already lie on the heap as a String type and not &str
     /// as it will be encrypted automatically and otherwise the plaintext
     /// would lie in the memory though
-    pub fn new(path: String, password: String, keyfile: String) -> V1Kpdb {
-        V1Kpdb { path: path, password: SecureString::new(password),
-                 keyfile: SecureString::new(keyfile), header: V1Header::new(),
-                 groups: vec![], entries: vec![],
-                 root_group: Rc::new(RefCell::new(V1Group::new())) }
+    pub fn new(path: String, password: Option<String>, keyfile: Option<String>) -> Result<V1Kpdb, V1KpdbError> {
+        if password.is_none() && keyfile.is_none() {
+            return Err(V1KpdbError::PassErr);
+        }
+        let sec_password = match password {
+            Some(s) => Some(SecureString::new(s)),
+            None => None,
+        };
+        let sec_keyfile = match keyfile {
+            Some(s) => Some(SecureString::new(s)),
+            None => None,
+        };
+
+        Ok(V1Kpdb { path: path, password: sec_password,
+                    keyfile: sec_keyfile, header: V1Header::new(),
+                    groups: vec![], entries: vec![],
+                    root_group: Rc::new(RefCell::new(V1Group::new())) })
     }
 
     /// Decrypt and parse the database.
@@ -96,6 +109,7 @@ impl V1Kpdb {
         try!(self.header.read_header(self.path.clone()));
         let decrypted_database = try!(V1Kpdb::decrypt_database(self.path.clone(),
                                                                &mut self.password,
+                                                               &mut self.keyfile,
                                                                &self.header));
         // Prevent swapping of raw data
         unsafe { mman::mlock(decrypted_database.as_ptr() as *const c_void,
@@ -120,18 +134,58 @@ impl V1Kpdb {
     }
 
     // Decrypt the database and return the raw data as Vec<u8>
-    fn decrypt_database(path: String, password: &mut SecureString, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
-        let mut file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(124i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
-        let crypted_database = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
+    fn decrypt_database(path: String, password: &mut Option<SecureString>,
+                        keyfile: &mut Option<SecureString>, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
+        let mut file = try!(File::open_mode(&Path::new(path), Open, Read)
+                            .map_err(|_| V1KpdbError::FileErr));
+        try!(file.seek(124i64, SeekStyle::SeekSet)
+             .map_err(|_| V1KpdbError::FileErr));
+        let crypted_database = try!(file.read_to_end()
+                                    .map_err(|_| V1KpdbError::ReadErr));
 
         // Create the key and decrypt the database finally
-        let masterkey = V1Kpdb::get_passwordkey(password);
+        let masterkey = match (password, keyfile) {
+            // Only password provided
+            (&mut Some(ref mut p), &mut None) => V1Kpdb::get_passwordkey(p),
+            // Only keyfile provided            
+            (&mut None, &mut Some(ref mut k)) => try!(V1Kpdb::get_keyfilekey(k)),
+            // Both provided
+            (&mut Some(ref mut p), &mut Some(ref mut k)) => {
+                // Get hashed keys...
+                let passwordkey = V1Kpdb::get_passwordkey(p);
+                unsafe { mman::mlock(passwordkey.as_ptr() as *const c_void,
+                                     passwordkey.len() as size_t); } 
+                
+                let keyfilekey = try!(V1Kpdb::get_keyfilekey(k));
+                unsafe { mman::mlock(keyfilekey.as_ptr() as *const c_void,
+                                     keyfilekey.len() as size_t); } 
+
+                // ...and hash them together
+                let mut hasher = Hasher::new(HashType::SHA256);
+                hasher.update(passwordkey.as_slice());
+                hasher.update(keyfilekey.as_slice());
+
+                // Zero out unneeded keys
+                unsafe { ptr::zero_memory(passwordkey.as_ptr() as *mut c_void,
+                                          passwordkey.len());
+                         ptr::zero_memory(keyfilekey.as_ptr() as *mut c_void,
+                                          keyfilekey.len());
+                         mman::munlock(passwordkey.as_ptr() as *const c_void,
+                                       passwordkey.len() as size_t);
+                         mman::munlock(keyfilekey.as_ptr() as *const c_void,
+                                       keyfilekey.len() as size_t); }
+                
+                hasher.finalize()
+            },
+            (&mut None, &mut None) => return Err(V1KpdbError::PassErr),
+        };
         unsafe { mman::mlock(masterkey.as_ptr() as *const c_void,
-                             masterkey.len() as size_t); } 
+                             masterkey.len() as size_t); }
+        
         let finalkey = V1Kpdb::transform_key(masterkey, header);
         unsafe { mman::mlock(finalkey.as_ptr() as *const c_void,
-                             finalkey.len() as size_t); } 
+                             finalkey.len() as size_t); }
+        
         let decrypted_database = V1Kpdb::decrypt_it(finalkey, crypted_database, header);
 
         try!(V1Kpdb::check_decryption_success(header, &decrypted_database));
@@ -155,12 +209,77 @@ impl V1Kpdb {
         hasher.finalize()
     }
 
+    // Get key from keyfile
+    fn get_keyfilekey(keyfile: &mut SecureString) -> Result<Vec<u8>, V1KpdbError> {
+        //unlock SecureString
+        keyfile.unlock();
+        // keyfile.string.as_bytes() is secure as just a reference is returned
+        let keyfile_path = keyfile.string.as_bytes();
+        
+        let mut file = try!(File::open_mode(&Path::new(keyfile_path), Open, Read)
+                            .map_err(|_| V1KpdbError::FileErr));
+        // Zero out plaintext keyfile path
+        keyfile.delete();
+
+        try!(file.seek(0i64, SeekStyle::SeekEnd).map_err(|_| V1KpdbError::FileErr));
+        let file_size = try!(file.tell().map_err(|_| V1KpdbError::FileErr));
+        try!(file.seek(0i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
+        
+        if file_size == 32 {
+            let mut key: Vec<u8>;
+            key = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
+            return Ok(key);
+        } else if file_size == 64 {
+            // interpret characters as encoded hex if possible (e.g. "FF" => 0xff)
+            let filecontent = file.read_to_string();
+            if filecontent.is_err() == false {
+                let result = filecontent.ok().unwrap().as_slice().from_hex();
+                if result.is_err() == false {
+                    return Ok(result.ok().unwrap());
+                }
+            }
+            try!(file.seek(0i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
+        }
+
+        // Read up to 2048 bytes and hash them
+        let mut hasher = Hasher::new(HashType::SHA256);
+
+        loop {
+            let mut read_bytes = 0;
+            let mut buf: Vec<u8> = vec![];
+
+            // We use this construct instead of file.read()
+            // to handle EndOfFile _and_ get the number
+            // of read bytes
+            for _ in (0..2048) {
+                match file.read_byte() {
+                    Ok(o) => buf.push(o),
+                    Err(e) => {
+                        if e.kind == EndOfFile {
+                            break;
+                        } else {
+                            return Err(V1KpdbError::ReadErr);
+                        }
+                    }
+                }
+                read_bytes += 1;
+            }
+            hasher.update(buf.as_slice());
+            if read_bytes < 2048 {
+                break;
+            }
+        }
+
+        let key = hasher.finalize();
+        Ok(key)
+    }
+
     // Create the finalkey from the masterkey by encrypting it with some
     // random seeds from the database header and AES_ECB
     fn transform_key(mut masterkey: Vec<u8>, header: &V1Header) -> Vec<u8> {
         let crypter = symm::Crypter::new(symm::Type::AES_256_ECB);
         crypter.init(symm::Mode::Encrypt, header.transf_randomseed.as_slice(), vec![]);
-        for _ in range(0u32, header.key_transf_rounds) {
+        for _ in (0..header.key_transf_rounds) {
             masterkey = crypter.update(masterkey.as_slice());
         }
         let mut hasher = Hasher::new(HashType::SHA256);
@@ -228,14 +347,14 @@ impl V1Kpdb {
         let mut field_size: u32;
 
         while group_number < header.num_groups {
-            field_type = try!(slice_to_u16(decrypted_database.slice(pos, pos + 2)));
+            field_type = try!(slice_to_u16(&decrypted_database[pos..pos + 2]));
             pos += 2;
 
             if pos > decrypted_database.len() {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            field_size = try!(slice_to_u32(decrypted_database.slice(pos, pos + 4)));
+            field_size = try!(slice_to_u32(&decrypted_database[pos..pos + 4]));
             pos += 4;
 
             if pos > decrypted_database.len() {
@@ -278,14 +397,14 @@ impl V1Kpdb {
         let mut field_size: u32;
 
         while entry_number < header.num_entries {
-            field_type = try!(slice_to_u16(decrypted_database.slice(pos, pos + 2)));
+            field_type = try!(slice_to_u16(&decrypted_database[pos..pos + 2]));
             pos += 2;
 
             if pos > decrypted_database.len() {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            field_size = try!(slice_to_u32(decrypted_database.slice(pos, pos + 4)));
+            field_size = try!(slice_to_u32(&decrypted_database[pos..pos + 4]));
             pos += 4;
 
             if pos > decrypted_database.len() {
@@ -318,9 +437,9 @@ impl V1Kpdb {
     fn read_group_field(mut group: RefMut<V1Group>, field_type: u16, field_size: u32,
                         decrypted_database: &Vec<u8>, pos: usize) -> Result<(), V1KpdbError> {
         let db_slice = if field_type == 0x0002 {
-            decrypted_database.slice(pos, pos + (field_size - 1) as usize)
+            &decrypted_database[pos..pos + (field_size - 1) as usize]
         } else {
-            decrypted_database.slice(pos, pos + field_size as usize)
+            &decrypted_database[pos..pos + field_size as usize]
         };
 
         match field_type {
@@ -343,8 +462,9 @@ impl V1Kpdb {
     fn read_entry_field(mut entry: RefMut<V1Entry>, field_type: u16, field_size: u32,
                         decrypted_database: &Vec<u8>, pos: usize) -> Result<(), V1KpdbError> {
         let db_slice = match field_type {
-            0x0004 ... 0x0008 | 0x000D => decrypted_database.slice(pos, pos + (field_size - 1) as usize),
-            _ => decrypted_database.slice(pos, pos + field_size as usize),
+            0x0004 ... 0x0008 | 0x000D =>
+                &decrypted_database[pos..pos + (field_size - 1) as usize],
+            _ => &decrypted_database[pos..pos + field_size as usize],
         };
 
         match field_type {
@@ -392,7 +512,7 @@ impl V1Kpdb {
             return Err(V1KpdbError::TreeErr);
         }
         
-        for i in range(0, db.groups.len()) {
+        for i in (0..db.groups.len()) {
             // level 0 means that the group is not a sub group. Hence add it as a children
             // of the root
             if levels[i] == 0 {
@@ -441,23 +561,48 @@ impl V1Kpdb {
 #[cfg(test)]
 mod tests {
     use super::V1Kpdb;
+    use super::super::v1error::V1KpdbError;
     use super::super::v1header::V1Header;
     use super::super::super::sec_str::SecureString;
 
     #[test]
     fn test_new() {
-        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string()).load().is_ok(), true);
+        // No keyfile and password should give error as result
+        let mut result = V1Kpdb::new("test/test_password.kdb".to_string(), None, None);
+        match result {
+            Ok(_)  => assert!(false),
+            Err(e) => assert_eq!(e, V1KpdbError::PassErr),
+        };
 
-        let mut db = V1Kpdb::new("test/test_password.kdb".to_string(), "test".to_string(), "".to_string());
-        let _ = db.load();
-        assert_eq!(db.path.as_slice(), "test/test_password.kdb");
-        assert_eq!(db.password.string.as_slice(), "\0\0\0\0");
-        assert_eq!(db.keyfile.string.as_slice(), "");
+        // Test load at all and parameters
+        result = V1Kpdb::new("test/test_both.kdb".to_string(), Some("test".to_string()),
+                             Some("test/test_key".to_string()));
+        assert!(result.is_ok());
+        let mut db = result.ok().unwrap();
+        assert_eq!(db.load().is_ok(), true);
+        assert_eq!(db.path.as_slice(), "test/test_both.kdb");
 
-        db.password.unlock();
-        assert_eq!(db.password.string.as_slice(), "test");
-
-        assert_eq!(V1Kpdb::new("test/test_password.kdb".to_string(), "tes".to_string(), "".to_string()).load().is_err(), true);
+        match db.password {
+            Some(mut s) => {assert_eq!(s.string.as_slice(), "\0\0\0\0");
+                        s.unlock();
+                        assert_eq!(s.string.as_slice(), "test")},
+            None => assert!(false),
+        };
+        match db.keyfile {
+            Some(mut s) => {assert_eq!(s.string.as_slice(), "\0\0\0\0\0\0\0\0\0\0\0\0\0");
+                            s.unlock();
+                            assert_eq!(s.string.as_slice(), "test/test_key")},
+            None => assert!(false),
+        };
+        
+        // Test fail of load with wrong password
+        result = V1Kpdb::new("test/test_password.kdb".to_string(), Some("tes".to_string()), None);
+        assert!(result.is_ok());
+        db = result.ok().unwrap();
+        match db.load() {
+            Ok(_)  => assert!(false),
+            Err(e) => assert_eq!(e, V1KpdbError::HashErr),
+        };
     }
 
     #[test]
@@ -480,6 +625,89 @@ mod tests {
     }
 
     #[test]
+    fn test_keyfilekey() {
+        let test_hash1 = vec![0x97, 0x57, 0xC1, 0xFB,
+                              0x2F, 0xFB, 0x2B, 0xEA,
+                              0x15, 0x82, 0x2B, 0x84,
+                              0xF0, 0xBD, 0x50, 0xCF,
+                              0xCC, 0x57, 0xE6, 0xF5,
+                              0x56, 0xE0, 0x1D, 0x92,
+                              0xF7, 0x38, 0xEF, 0x72,
+                              0xB5, 0xC5, 0xA2, 0xEF];
+        let test_hash2 = vec![0xB7, 0x4B, 0xCE, 0x14,
+                              0x8B, 0xB9, 0xEF, 0xA2,
+                              0xA3, 0xBE, 0xFC, 0xEC,
+                              0xFD, 0xC5, 0x45, 0xFB,
+                              0x4F, 0x5B, 0xF1, 0x38,
+                              0x57, 0xF5, 0xC5, 0x6F,
+                              0xB2, 0x6C, 0x11, 0x0F,
+                              0x30, 0x3B, 0x48, 0x95];
+        let test_hash3 = vec![0xA0, 0x6B, 0xB1, 0xE0,
+                              0xDD, 0x95, 0x66, 0x92,
+                              0x93, 0xF9, 0xF3, 0xBD,
+                              0xC0, 0x6B, 0x40, 0x98,
+                              0x48, 0x80, 0x08, 0xE0,
+                              0x6E, 0x91, 0xA4, 0x6C,
+                              0xEE, 0xBA, 0x2E, 0x25,
+                              0xF7, 0xE7, 0x20, 0xA7];
+        let test_hash4 = vec![0x35, 0x6F, 0xCD, 0x45,
+                              0x2D, 0x70, 0xB8, 0xDA,
+                              0x89, 0x8C, 0x9D, 0x16,
+                              0x06, 0xAF, 0x62, 0x08,
+                              0x71, 0xEB, 0xBD, 0x2D,
+                              0x10, 0x45, 0x59, 0xB8,
+                              0x75, 0x3B, 0x8A, 0xD5,
+                              0x15, 0xAC, 0xBE, 0x4D];
+        let test_hash5 = vec![0xB3, 0x61, 0x48, 0x08,
+                              0xD3, 0xAE, 0xC9, 0x60,
+                              0x97, 0x82, 0xED, 0x52,
+                              0x59, 0x82, 0x89, 0x1D,
+                              0x5F, 0xFA, 0x23, 0xC7,
+                              0xCE, 0x8A, 0x00, 0x4F,
+                              0x5D, 0x64, 0x27, 0xDD,
+                              0x4F, 0x44, 0xAF, 0x8B];
+        let test_hash6 = vec![0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0xFF, 0xFF];
+
+        let mut key1 = SecureString::new("test/32Bkey".to_string());
+        let mut key2 = SecureString::new("test/64Bkey".to_string());
+        let mut key3 = SecureString::new("test/128Bkey".to_string());
+        let mut key4 = SecureString::new("test/2048Bkey".to_string());
+        let mut key5 = SecureString::new("test/4096Bkey".to_string());
+        let mut key6 = SecureString::new("test/64Bkey_alt".to_string());
+
+        let mut result = V1Kpdb::get_keyfilekey(&mut key1);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.ok().unwrap(), test_hash1);
+
+        result = V1Kpdb::get_keyfilekey(&mut key2);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.ok().unwrap(), test_hash2);
+
+        result = V1Kpdb::get_keyfilekey(&mut key3);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.ok().unwrap(), test_hash3);
+
+        result = V1Kpdb::get_keyfilekey(&mut key4);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.ok().unwrap(), test_hash4);
+
+        result = V1Kpdb::get_keyfilekey(&mut key5);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.ok().unwrap(), test_hash5);
+
+        result = V1Kpdb::get_keyfilekey(&mut key6);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.ok().unwrap(), test_hash6);
+    }
+    
+    #[test]
     fn test_decrypt_it() {
         let test_content1: Vec<u8> = vec![0x01, 0x00, 0x04, 0x00,
                                           0x00, 0x00, 0x01, 0x00,
@@ -492,11 +720,16 @@ mod tests {
 
         let mut header = V1Header::new();
         let _ = header.read_header("test/test_password.kdb".to_string());
-        let mut sec_str = SecureString::new("test".to_string());
-
-        assert_eq!(V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).is_ok(), true);
-
-        let db_tmp = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
+        let sec_str = SecureString::new("test".to_string());
+        let mut keyfile = None;
+        
+        let mut db_tmp: Vec<u8> = vec![];
+        match V1Kpdb::decrypt_database("test/test_password.kdb".to_string(),
+                                       &mut Some(sec_str), &mut keyfile,
+                                       &header) {
+            Ok(e)  => {db_tmp = e},
+            Err(_) => assert!(false),
+        };
         let db_len = db_tmp.len();
         let db_clone = db_tmp.clone();
         // let test_clone = db_tmp.clone();
@@ -515,17 +748,26 @@ mod tests {
         assert_eq!(test_content1, test1);
         assert_eq!(test_content2, test2);
     }
-
+    
     #[test]
     fn test_parse_groups () {
         let mut header = V1Header::new();
         let _ = header.read_header("test/test_password.kdb".to_string());
-        let mut sec_str = SecureString::new("test".to_string());
-        let decrypted_database = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
-
-        assert_eq!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).is_ok(), true);
-
-        let (groups, _) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).ok().unwrap();
+        let sec_str = SecureString::new("test".to_string());
+        let mut keyfile = None;
+        let mut decrypted_database: Vec<u8> = vec![];
+        match V1Kpdb::decrypt_database("test/test_password.kdb".to_string(),
+                                       &mut Some(sec_str), &mut keyfile,
+                                       &header) {
+            Ok(e)  => { decrypted_database = e;},
+            Err(_) => assert!(false),
+        };
+        
+        let mut groups = vec![];
+        match V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0us) {
+            Ok((e, _)) => { groups = e; }, 
+            Err(_) => assert!(false),
+        }
 
         assert_eq!(groups[0].borrow().id, 1);
         assert_eq!(groups[0].borrow().title.as_slice(), "Internet");
@@ -551,12 +793,21 @@ mod tests {
 
         let mut header = V1Header::new();
         let _ = header.read_header("test/test_password.kdb".to_string());
-        let mut sec_str = SecureString::new("test".to_string());
-        let decrypted_database = V1Kpdb::decrypt_database("test/test_password.kdb".to_string(), &mut sec_str, &header).ok().unwrap();        
+        let sec_str = SecureString::new("test".to_string());
+        let mut keyfile = None;
+        let mut decrypted_database: Vec<u8> = vec![];
+        match V1Kpdb::decrypt_database("test/test_password.kdb".to_string(),
+                                       &mut Some(sec_str), &mut keyfile,
+                                       &header) {
+            Ok(e)  => { decrypted_database = e;},
+            Err(_) => assert!(false),
+        };
 
-        assert_eq!(V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138u).is_ok(), true);
-
-        let mut entries = V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138u).ok().unwrap();
+        let mut entries = vec![];
+        match V1Kpdb::parse_entries(&header, &decrypted_database, &mut 138us) {
+            Ok(e)  => { entries = e; }, 
+            Err(_) => assert!(false),
+        }
 
         entries[0].borrow_mut().password.unlock();
 
@@ -574,23 +825,38 @@ mod tests {
 
     #[test]
     fn test_create_group_tree() {
-        let mut db = V1Kpdb::new("test/test_parsing.kdb".to_string(), "test".to_string(), "".to_string());
+        let mut db = V1Kpdb::new("test/test_parsing.kdb".to_string(),
+                                 Some("test".to_string()), None).ok().unwrap();
         
         let mut header = V1Header::new();
         let _ = header.read_header("test/test_parsing.kdb".to_string());
-        let mut sec_str = SecureString::new("test".to_string());
-        let decrypted_database = V1Kpdb::decrypt_database("test/test_parsing.kdb".to_string(), &mut sec_str, &header).ok().unwrap();
+        let sec_str = SecureString::new("test".to_string());
+        let mut keyfile = None;
+        let mut decrypted_database: Vec<u8> = vec![];
+        match V1Kpdb::decrypt_database("test/test_parsing.kdb".to_string(),
+                                       &mut Some(sec_str), &mut keyfile,
+                                       &header) {
+            Ok(e)  => { decrypted_database = e;},
+            Err(_) => assert!(false),
+        };
 
-        let mut pos = 0u;
+        let mut pos = 0us;
 
-        assert_eq!(V1Kpdb::parse_groups(&header, &decrypted_database, &mut 0u).is_ok(), true);
-        let (groups, levels) = V1Kpdb::parse_groups(&header, &decrypted_database, &mut pos).ok().unwrap();
+        let mut groups = vec![];
+        let mut levels = vec![];
+        match V1Kpdb::parse_groups(&header, &decrypted_database, &mut pos) {
+            Ok((e, l)) => { groups = e;
+                            levels = l;}, 
+            Err(_) => assert!(false),
+        }
         db.groups = groups;
 
         let mut pos_cpy = pos;
-
-        assert_eq!(V1Kpdb::parse_entries(&header, &decrypted_database, &mut pos_cpy).is_ok(), true);
-        let entries = V1Kpdb::parse_entries(&header, &decrypted_database, &mut pos).ok().unwrap();
+        let mut entries = vec![];
+        match V1Kpdb::parse_entries(&header, &decrypted_database, &mut pos_cpy) {
+            Ok(e)  => { entries = e; }, 
+            Err(_) => assert!(false),
+        }
         db.entries = entries;
 
         assert_eq!(V1Kpdb::create_group_tree(&mut db, levels).is_ok(), true);
