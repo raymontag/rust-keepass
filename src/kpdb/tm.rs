@@ -1,3 +1,4 @@
+#[derive(Show, Copy)]
 pub struct Tm {
     pub year:   i32,
     pub month:  i32,
