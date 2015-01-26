@@ -84,7 +84,10 @@ impl V1Kpdb {
     /// password should already lie on the heap as a String type and not &str
     /// as it will be encrypted automatically and otherwise the plaintext
     /// would lie in the memory though
-    pub fn new(path: String, password: Option<String>, keyfile: Option<String>) -> Result<V1Kpdb, V1KpdbError> {
+    pub fn new(path: String,
+               password: Option<String>,
+               keyfile: Option<String>) -> Result<V1Kpdb, V1KpdbError> {
+        // Password and/or keyfile needed but at least one of both
         if password.is_none() && keyfile.is_none() {
             return Err(V1KpdbError::PassErr);
         }
@@ -111,17 +114,17 @@ impl V1Kpdb {
                                                                &mut self.password,
                                                                &mut self.keyfile,
                                                                &self.header));
-        // Prevent swapping of raw data
-        unsafe { mman::mlock(decrypted_database.as_ptr() as *const c_void,
-                             decrypted_database.len() as size_t); } 
-        
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
         let mut pos: usize = 0;
-        let (groups, levels) = try!(V1Kpdb::parse_groups(&self.header, &decrypted_database, &mut pos));
+        let (groups, levels) = try!(V1Kpdb::parse_groups(&self.header,
+                                                         &decrypted_database,
+                                                         &mut pos));
         self.groups = groups;
-        self.entries = try!(V1Kpdb::parse_entries(&self.header, &decrypted_database, &pos));
-
+        self.entries = try!(V1Kpdb::parse_entries(&self.header,
+                                                  &decrypted_database,
+                                                  &pos));
+        
         // Zero out raw data as it's not needed anymore
         unsafe { ptr::zero_memory(decrypted_database.as_ptr() as *mut c_void,
                                   decrypted_database.len());
@@ -134,8 +137,10 @@ impl V1Kpdb {
     }
 
     // Decrypt the database and return the raw data as Vec<u8>
-    fn decrypt_database(path: String, password: &mut Option<SecureString>,
-                        keyfile: &mut Option<SecureString>, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
+    fn decrypt_database(path: String,
+                        password: &mut Option<SecureString>,
+                        keyfile: &mut Option<SecureString>,
+                        header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
         let mut file = try!(File::open_mode(&Path::new(path), Open, Read)
                             .map_err(|_| V1KpdbError::FileErr));
         try!(file.seek(124i64, SeekStyle::SeekSet)
@@ -191,6 +196,10 @@ impl V1Kpdb {
         try!(V1Kpdb::check_decryption_success(header, &decrypted_database));
         try!(V1Kpdb::check_content_hash(header, &decrypted_database));
 
+        // Prevent swapping of raw data
+        unsafe { mman::mlock(decrypted_database.as_ptr() as *const c_void,
+                             decrypted_database.len() as size_t); } 
+        
         Ok(decrypted_database)
     }
 
@@ -221,9 +230,11 @@ impl V1Kpdb {
         // Zero out plaintext keyfile path
         keyfile.delete();
 
-        try!(file.seek(0i64, SeekStyle::SeekEnd).map_err(|_| V1KpdbError::FileErr));
+        try!(file.seek(0i64, SeekStyle::SeekEnd)
+             .map_err(|_| V1KpdbError::FileErr));
         let file_size = try!(file.tell().map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(0i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
+        try!(file.seek(0i64, SeekStyle::SeekSet)
+             .map_err(|_| V1KpdbError::FileErr));
         
         if file_size == 32 {
             let mut key: Vec<u8>;
@@ -231,14 +242,17 @@ impl V1Kpdb {
             return Ok(key);
         } else if file_size == 64 {
             // interpret characters as encoded hex if possible (e.g. "FF" => 0xff)
-            let filecontent = file.read_to_string();
-            if filecontent.is_err() == false {
-                let result = filecontent.ok().unwrap().as_slice().from_hex();
-                if result.is_err() == false {
-                    return Ok(result.ok().unwrap());
-                }
+            match file.read_to_string() {
+                Ok(e1) => {
+                    match e1.as_slice().from_hex() {
+                        Ok(e2) => return Ok(e2),
+                        Err(_) => {},
+                    }
+                },
+                Err(_) => {},
             }
-            try!(file.seek(0i64, SeekStyle::SeekSet).map_err(|_| V1KpdbError::FileErr));
+            try!(file.seek(0i64, SeekStyle::SeekSet)
+                 .map_err(|_| V1KpdbError::FileErr));
         }
 
         // Read up to 2048 bytes and hash them
@@ -278,7 +292,8 @@ impl V1Kpdb {
     // random seeds from the database header and AES_ECB
     fn transform_key(mut masterkey: Vec<u8>, header: &V1Header) -> Vec<u8> {
         let crypter = symm::Crypter::new(symm::Type::AES_256_ECB);
-        crypter.init(symm::Mode::Encrypt, header.transf_randomseed.as_slice(), vec![]);
+        crypter.init(symm::Mode::Encrypt,
+                     header.transf_randomseed.as_slice(), vec![]);
         for _ in (0..header.key_transf_rounds) {
             masterkey = crypter.update(masterkey.as_slice());
         }
@@ -291,7 +306,8 @@ impl V1Kpdb {
         hasher.update(masterkey.as_slice());
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void, masterkey.len());
+        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void,
+                                  masterkey.len());
                  mman::munlock(masterkey.as_ptr() as *const c_void,
                                masterkey.len() as size_t); }
 
@@ -299,12 +315,17 @@ impl V1Kpdb {
     }
 
     // Decrypt the raw data and return it
-    fn decrypt_it(finalkey: Vec<u8>, crypted_database: Vec<u8>, header: &V1Header) -> Vec<u8> {
-        let mut db_tmp = symm::decrypt(symm::Type::AES_256_CBC, finalkey.as_slice(), header.iv.clone(), 
-                                   crypted_database.as_slice());
+    fn decrypt_it(finalkey: Vec<u8>,
+                  crypted_database: Vec<u8>,
+                  header: &V1Header) -> Vec<u8> {
+        let mut db_tmp = symm::decrypt(symm::Type::AES_256_CBC,
+                                       finalkey.as_slice(),
+                                       header.iv.clone(), 
+                                       crypted_database.as_slice());
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void, finalkey.len());
+        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void,
+                                  finalkey.len());
                  mman::munlock(finalkey.as_ptr() as *const c_void,
                                finalkey.len() as size_t); }
 
@@ -318,15 +339,18 @@ impl V1Kpdb {
     }
 
     // Check some conditions
-    fn check_decryption_success(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
-        if (decrypted_content.len() > 2147483446) || (decrypted_content.len() == 0 && header.num_groups > 0) {
+    fn check_decryption_success(header: &V1Header,
+                                decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
+        if (decrypted_content.len() > 2147483446) ||
+            (decrypted_content.len() == 0 && header.num_groups > 0) {
             return Err(V1KpdbError::DecryptErr);
         }
         Ok(())
     }
 
     // Check some more conditions
-    fn check_content_hash(header: &V1Header, decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
+    fn check_content_hash(header: &V1Header,
+                          decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
         let mut hasher = Hasher::new(HashType::SHA256);
         hasher.update(decrypted_content.as_slice());
         if hasher.finalize() != header.contents_hash {
@@ -336,7 +360,9 @@ impl V1Kpdb {
     }
 
     // Parse the groups and put them into a vector
-    fn parse_groups(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &mut usize) -> Result<(Vec<Rc<RefCell<V1Group>>>, Vec<u16>), V1KpdbError> {
+    fn parse_groups(header: &V1Header,
+                    decrypted_database: &Vec<u8>,
+                    remembered_pos: &mut usize) -> Result<(Vec<Rc<RefCell<V1Group>>>, Vec<u16>), V1KpdbError> {
         let mut pos: usize = 0;
         let mut group_number: u32 = 0;
         let mut levels: Vec<u16> = vec![];
@@ -361,7 +387,8 @@ impl V1Kpdb {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            let _ = V1Kpdb::read_group_field(cur_group.borrow_mut(), field_type, field_size, 
+            let _ = V1Kpdb::read_group_field(cur_group.borrow_mut(),
+                                             field_type, field_size, 
                                              decrypted_database, pos);
             
             if field_type == 0x0008 {
@@ -387,7 +414,9 @@ impl V1Kpdb {
     }
 
     // Parse the entries and put them into a vector
-    fn parse_entries(header: &V1Header, decrypted_database: &Vec<u8>, remembered_pos: &usize) -> Result<Vec<Rc<RefCell<V1Entry>>>, V1KpdbError> {
+    fn parse_entries(header: &V1Header,
+                     decrypted_database: &Vec<u8>,
+                     remembered_pos: &usize) -> Result<Vec<Rc<RefCell<V1Entry>>>, V1KpdbError> {
         let mut pos = *remembered_pos;
         let mut entry_number: u32 = 0;
         let mut cur_entry = Rc::new(RefCell::new(V1Entry::new()));
@@ -411,7 +440,8 @@ impl V1Kpdb {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            let _ = V1Kpdb::read_entry_field(cur_entry.borrow_mut(), field_type, field_size, 
+            let _ = V1Kpdb::read_entry_field(cur_entry.borrow_mut(),
+                                             field_type, field_size, 
                                              decrypted_database, pos);
 
             if field_type == 0xFFFF {
@@ -444,7 +474,8 @@ impl V1Kpdb {
 
         match field_type {
             0x0001 => group.id = try!(slice_to_u32(db_slice)),
-            0x0002 => group.title = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0002 => group.title = str::from_utf8(db_slice)
+                .unwrap_or("").to_string(),
             0x0003 => group.creation = V1Kpdb::get_date(db_slice),
             0x0004 => group.last_mod = V1Kpdb::get_date(db_slice),
             0x0005 => group.last_access = V1Kpdb::get_date(db_slice),
@@ -468,20 +499,28 @@ impl V1Kpdb {
         };
 
         match field_type {
-            0x0001 => entry.uuid = (0..field_size as usize).map(|i| db_slice[i]).collect(),
+            0x0001 => entry.uuid = (0..field_size as usize)
+                .map(|i| db_slice[i]).collect(),
             0x0002 => entry.group_id = try!(slice_to_u32(db_slice)),
             0x0003 => entry.image = try!(slice_to_u32(db_slice)),
-            0x0004 => entry.title = str::from_utf8(db_slice).unwrap_or("").to_string(),
-            0x0005 => entry.url = str::from_utf8(db_slice).unwrap_or("").to_string(),
-            0x0006 => entry.username = str::from_utf8(db_slice).unwrap_or("").to_string(),
-            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice).unwrap().to_string()),
-            0x0008 => entry.comment = str::from_utf8(db_slice).unwrap_or("").to_string(),
+            0x0004 => entry.title = str::from_utf8(db_slice)
+                .unwrap_or("").to_string(),
+            0x0005 => entry.url = str::from_utf8(db_slice)
+                .unwrap_or("").to_string(),
+            0x0006 => entry.username = str::from_utf8(db_slice)
+                .unwrap_or("").to_string(),
+            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice)
+                                                         .unwrap().to_string()),
+            0x0008 => entry.comment = str::from_utf8(db_slice)
+                .unwrap_or("").to_string(),
             0x0009 => entry.creation = V1Kpdb::get_date(db_slice),
             0x000A => entry.last_mod = V1Kpdb::get_date(db_slice),
             0x000B => entry.last_access = V1Kpdb::get_date(db_slice),
             0x000C => entry.expire = V1Kpdb::get_date(db_slice),
-            0x000D => entry.binary_desc = str::from_utf8(db_slice).unwrap_or("").to_string(),
-            0x000E => entry.binary = (0..field_size as usize).map(|i| db_slice[i]).collect(),
+            0x000D => entry.binary_desc = str::from_utf8(db_slice)
+                .unwrap_or("").to_string(),
+            0x000E => entry.binary = (0..field_size as usize)
+                .map(|i| db_slice[i]).collect(),
             _ => (),
         }
 
@@ -503,11 +542,13 @@ impl V1Kpdb {
         let minute = ((dw4 & 0x0F) << 2) | (dw5 >> 6);
         let second = dw5 & 0x3F;
 
-        Tm { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
+        Tm { year: year, month: month, day: day,
+             hour: hour, minute: minute, second: second }
     }
 
     // Create the group tree from the level data
-    fn create_group_tree(db: &mut V1Kpdb, levels: Vec<u16>) -> Result<(), V1KpdbError> {
+    fn create_group_tree(db: &mut V1Kpdb,
+                         levels: Vec<u16>) -> Result<(), V1KpdbError> {
         if levels[0] != 0 {
             return Err(V1KpdbError::TreeErr);
         }
@@ -517,19 +558,22 @@ impl V1Kpdb {
             // of the root
             if levels[i] == 0 {
                 db.groups[i].borrow_mut().parent = Some(db.root_group.clone());
-                db.root_group.borrow_mut().children.push(db.groups[i].clone().downgrade());
+                db.root_group.borrow_mut()
+                    .children.push(db.groups[i].clone().downgrade());
                 continue;
             }
 
             let mut j = i - 1;
             loop {
-                // Find the first group with a lower level than the current. That's the parent
+                // Find the first group with a lower level than the current.
+                // That's the parent
                 if levels[j] < levels[i] {
                     if levels[i] - levels[j] != 1 {
                         return Err(V1KpdbError::TreeErr);
                     }
                     db.groups[i].borrow_mut().parent = Some(db.groups[j].clone());
-                    db.groups[j].borrow_mut().children.push(db.groups[i].clone().downgrade());
+                    db.groups[j].borrow_mut()
+                        .children.push(db.groups[i].clone().downgrade());
                     break;
                 }
                 // It's not possible that a group which comes after another
