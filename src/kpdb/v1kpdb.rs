@@ -726,33 +726,40 @@ mod tests {
         let mut key5 = SecureString::new("test/4096Bkey".to_string());
         let mut key6 = SecureString::new("test/64Bkey_alt".to_string());
 
-        let mut result = V1Kpdb::get_keyfilekey(&mut key1);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.ok().unwrap(), test_hash1);
+        match V1Kpdb::get_keyfilekey(&mut key1) {
+            Ok(e)  => assert_eq!(e, test_hash1),
+            Err(_) => assert!(false),
+        }
 
-        result = V1Kpdb::get_keyfilekey(&mut key2);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.ok().unwrap(), test_hash2);
 
-        result = V1Kpdb::get_keyfilekey(&mut key3);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.ok().unwrap(), test_hash3);
+        match V1Kpdb::get_keyfilekey(&mut key2) {
+            Ok(e)  => assert_eq!(e, test_hash2),
+            Err(_) => assert!(false),
+        }
 
-        result = V1Kpdb::get_keyfilekey(&mut key4);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.ok().unwrap(), test_hash4);
+        match V1Kpdb::get_keyfilekey(&mut key3) {
+            Ok(e)  => assert_eq!(e, test_hash3),
+            Err(_) => assert!(false),
+        }
 
-        result = V1Kpdb::get_keyfilekey(&mut key5);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.ok().unwrap(), test_hash5);
+        match V1Kpdb::get_keyfilekey(&mut key4) {
+            Ok(e)  => assert_eq!(e, test_hash4),
+            Err(_) => assert!(false),
+        }
 
-        result = V1Kpdb::get_keyfilekey(&mut key6);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.ok().unwrap(), test_hash6);
+        match V1Kpdb::get_keyfilekey(&mut key5) {
+            Ok(e)  => assert_eq!(e, test_hash5),
+            Err(_) => assert!(false),
+        }
+
+        match V1Kpdb::get_keyfilekey(&mut key6) {
+            Ok(e)  => assert_eq!(e, test_hash6),
+            Err(_) => assert!(false),
+        }
     }
     
     #[test]
-    fn test_decrypt_it() {
+    fn test_decrypt_it_w_pass() {
         let test_content1: Vec<u8> = vec![0x01, 0x00, 0x04, 0x00,
                                           0x00, 0x00, 0x01, 0x00,
                                           0x00, 0x00, 0x02, 0x00,
@@ -764,30 +771,84 @@ mod tests {
 
         let mut header = V1Header::new();
         let _ = header.read_header("test/test_password.kdb".to_string());
-        let sec_str = SecureString::new("test".to_string());
+        let mut password = Some(SecureString::new("test".to_string()));
         let mut keyfile = None;
         
         let mut db_tmp: Vec<u8> = vec![];
         match V1Kpdb::decrypt_database("test/test_password.kdb".to_string(),
-                                       &mut Some(sec_str), &mut keyfile,
+                                       &mut password, &mut keyfile,
                                        &header) {
             Ok(e)  => {db_tmp = e},
             Err(_) => assert!(false),
         };
+
         let db_len = db_tmp.len();
-        let db_clone = db_tmp.clone();
-        // let test_clone = db_tmp.clone();
+        let test1 = &db_tmp[0..16];
+        let test2 = &db_tmp[db_len - 16..db_len];
 
-        let mut db_iter = db_tmp.into_iter();
-        let db_iter2 = db_clone.into_iter();
-        let mut db_iter3 = db_iter2.skip(db_len - 16);
+        assert_eq!(test_content1, test1);
+        assert_eq!(test_content2, test2);
+    }
+    
+    #[test]
+    fn test_decrypt_it_w_key() {
+        let test_content1: Vec<u8> = vec![0x01, 0x00, 0x04, 0x00,
+                                          0x00, 0x00, 0x01, 0x00,
+                                          0x00, 0x00, 0x02, 0x00,
+                                          0x09, 0x00, 0x00, 0x00];
+        let test_content2: Vec<u8> = vec![0x00, 0x05, 0x00, 0x00,
+                                          0x00, 0x1F, 0x7C, 0xB5,
+                                          0x7E, 0xFB, 0xFF, 0xFF,
+                                          0x00, 0x00, 0x00, 0x00];
 
-        let test1: Vec<u8> = (0..16).map(|_| db_iter.next().unwrap()).collect();
-        let test2: Vec<u8> = (0..16).map(|_| db_iter3.next().unwrap()).collect();
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_keyfile.kdb".to_string());
+        let mut password = None;
+        let mut keyfile = Some(SecureString::new("test/test_key".to_string()));
+        
+        let mut db_tmp: Vec<u8> = vec![];
+        match V1Kpdb::decrypt_database("test/test_keyfile.kdb".to_string(),
+                                       &mut password, &mut keyfile,
+                                       &header) {
+            Ok(e)  => {db_tmp = e},
+            Err(_) => assert!(false),
+        };
 
-        // for i in test_clone.into_iter() {
-        //     print!("{:x} ", i);
-        // }
+        let db_len = db_tmp.len();
+        let test1 = &db_tmp[0..16];
+        let test2 = &db_tmp[db_len - 16..db_len];
+
+        assert_eq!(test_content1, test1);
+        assert_eq!(test_content2, test2);
+    }
+
+        #[test]
+    fn test_decrypt_it_w_both() {
+        let test_content1: Vec<u8> = vec![0x01, 0x00, 0x04, 0x00,
+                                          0x00, 0x00, 0x01, 0x00,
+                                          0x00, 0x00, 0x02, 0x00,
+                                          0x09, 0x00, 0x00, 0x00];
+        let test_content2: Vec<u8> = vec![0x00, 0x05, 0x00, 0x00,
+                                          0x00, 0x1F, 0x7C, 0xB5,
+                                          0x7E, 0xFB, 0xFF, 0xFF,
+                                          0x00, 0x00, 0x00, 0x00];
+
+        let mut header = V1Header::new();
+        let _ = header.read_header("test/test_both.kdb".to_string());
+        let mut password = Some(SecureString::new("test".to_string()));
+        let mut keyfile = Some(SecureString::new("test/test_key".to_string()));
+        
+        let mut db_tmp: Vec<u8> = vec![];
+        match V1Kpdb::decrypt_database("test/test_both.kdb".to_string(),
+                                       &mut password, &mut keyfile,
+                                       &header) {
+            Ok(e)  => {db_tmp = e},
+            Err(_) => assert!(false),
+        };
+
+        let db_len = db_tmp.len();
+        let test1 = &db_tmp[0..16];
+        let test2 = &db_tmp[db_len - 16..db_len];
 
         assert_eq!(test_content1, test1);
         assert_eq!(test_content2, test2);
@@ -905,21 +966,36 @@ mod tests {
 
         assert_eq!(V1Kpdb::create_group_tree(&mut db, levels).is_ok(), true);
 
-        assert_eq!(db.groups[1].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "Internet");
-        assert_eq!(db.groups[2].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "Internet");
-        assert_eq!(db.groups[2].borrow_mut().children[0].upgrade().unwrap().borrow().title.as_slice(), "22");
-        assert_eq!(db.groups[2].borrow_mut().children[1].upgrade().unwrap().borrow().title.as_slice(), "21");
-        assert_eq!(db.groups[3].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "11");
-        assert_eq!(db.groups[4].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "11");
-        assert_eq!(db.groups[4].borrow_mut().children[0].upgrade().unwrap().borrow().title.as_slice(), "32");
-        assert_eq!(db.groups[4].borrow_mut().children[1].upgrade().unwrap().borrow().title.as_slice(), "31");
-        assert_eq!(db.groups[5].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
-        assert_eq!(db.groups[6].borrow_mut().parent.as_mut().unwrap().borrow().title.as_slice(), "21");
+        assert_eq!(db.groups[1].borrow_mut().parent.as_mut()
+                   .unwrap().borrow().title.as_slice(), "Internet");
+        assert_eq!(db.groups[2].borrow_mut().parent.as_mut()
+                   .unwrap().borrow().title.as_slice(), "Internet");
+        assert_eq!(db.groups[2].borrow_mut().children[0]
+                   .upgrade().unwrap().borrow().title.as_slice(), "22");
+        assert_eq!(db.groups[2].borrow_mut().children[1]
+                   .upgrade().unwrap().borrow().title.as_slice(), "21");
+        assert_eq!(db.groups[3].borrow_mut().parent.as_mut()
+                   .unwrap().borrow().title.as_slice(), "11");
+        assert_eq!(db.groups[4].borrow_mut().parent.as_mut()
+                   .unwrap().borrow().title.as_slice(), "11");
+        assert_eq!(db.groups[4].borrow_mut().children[0]
+                   .upgrade().unwrap().borrow().title.as_slice(), "32");
+        assert_eq!(db.groups[4].borrow_mut().children[1]
+                   .upgrade().unwrap().borrow().title.as_slice(), "31");
+        assert_eq!(db.groups[5].borrow_mut().parent.as_mut()
+                   .unwrap().borrow().title.as_slice(), "21");
+        assert_eq!(db.groups[6].borrow_mut().parent.as_mut()
+                   .unwrap().borrow().title.as_slice(), "21");
 
-        assert_eq!(db.entries[0].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "Internet");
-        assert_eq!(db.entries[1].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "11");
-        assert_eq!(db.entries[2].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "12");
-        assert_eq!(db.entries[3].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "21");
-        assert_eq!(db.entries[4].borrow_mut().group.as_mut().unwrap().borrow().title.as_slice(), "22");
+        assert_eq!(db.entries[0].borrow_mut().group.as_mut()
+                   .unwrap().borrow().title.as_slice(), "Internet");
+        assert_eq!(db.entries[1].borrow_mut().group.as_mut()
+                   .unwrap().borrow().title.as_slice(), "11");
+        assert_eq!(db.entries[2].borrow_mut().group.as_mut()
+                   .unwrap().borrow().title.as_slice(), "12");
+        assert_eq!(db.entries[3].borrow_mut().group.as_mut()
+                   .unwrap().borrow().title.as_slice(), "21");
+        assert_eq!(db.entries[4].borrow_mut().group.as_mut()
+                   .unwrap().borrow().title.as_slice(), "22");
     }
 }
