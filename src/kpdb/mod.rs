@@ -5,6 +5,11 @@ pub mod v1entry;
 pub mod v1header;
 pub mod tm;
 
+mod crypter;
+mod parser;
+
 #[cfg(test)]
-mod v1kpdb_tests;
+mod tests_v1kpdb;
+mod tests_parser;
+mod tests_crypter;
 
