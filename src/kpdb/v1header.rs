@@ -1,4 +1,5 @@
-use std::io::{File, Open, Read, IoResult};
+use std::old_io::IoResult;
+use std::old_io::fs::File;
 
 use super::v1error::V1KpdbError;
 
@@ -58,12 +59,12 @@ impl V1Header {
         let signature2 = try!(file.read_le_u32());
         let enc_flag = try!(file.read_le_u32());
         let version = try!(file.read_le_u32());
-        let final_randomseed = try!(file.read_exact(16us));
-        let iv = try!(file.read_exact(16us));
+        let final_randomseed = try!(file.read_exact(16usize));
+        let iv = try!(file.read_exact(16usize));
         let num_groups = try!(file.read_le_u32());
         let num_entries = try!(file.read_le_u32());
-        let contents_hash = try!(file.read_exact(32us));
-        let transf_randomseed = try!(file.read_exact(32us));
+        let contents_hash = try!(file.read_exact(32usize));
+        let transf_randomseed = try!(file.read_exact(32usize));
         let key_transf_rounds = try!(file.read_le_u32());
 
         Ok(V1Header { signature1: signature1,
@@ -82,7 +83,7 @@ impl V1Header {
     /// Use this to read the header in. path is the filepath of the database
     pub fn read_header(&mut self, path: String) -> Result<(), V1KpdbError> {
         // Map IoResult to Result with V1KpdbError
-        let file = try!(File::open_mode(&Path::new(path), Open, Read).map_err(|_| V1KpdbError::FileErr));
+        let file = try!(File::open(&Path::new(path)).map_err(|_| V1KpdbError::FileErr));
         *self = try!(V1Header::read_header_(file).map_err(|_| V1KpdbError::ReadErr));
         
         try!(V1Header::check_signatures(self));

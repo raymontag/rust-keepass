@@ -1,8 +1,8 @@
 use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use openssl::crypto::symm;
+use rand;
 use std::ptr;
-use std::rand;
 
 #[doc = "
 SecureString implements a secure string. This means in particular:
@@ -39,7 +39,8 @@ impl SecureString {
     /// lie in memory. The string will be automatically encrypted and deleted.
     pub fn new(string: String) -> SecureString {
         // Lock the string against swapping
-        unsafe { mman::mlock(string.as_ptr() as *const c_void, string.len() as size_t); }
+        unsafe { mman::mlock(string.as_ptr() as *const c_void,
+                             string.len() as size_t); }
         let mut sec_str = SecureString { string: string, encrypted_string: vec![],
                                          password: (0..32).map(|_| rand::random::<u8>()).collect(),
                                          iv: (0..32).map(|_| rand::random::<u8>()).collect() };

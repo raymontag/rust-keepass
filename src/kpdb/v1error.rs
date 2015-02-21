@@ -7,7 +7,7 @@ pub use self::V1KpdbError::*;
 Use this for catching various errors that
 can happen when using V1Kpdb.
 "]
-#[derive(Show, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum V1KpdbError {
     /// E.g. Couldn't open a file or file is to
     /// small.
