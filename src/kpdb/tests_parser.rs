@@ -84,43 +84,45 @@ fn test_parse_entries () {
     assert_eq!(entries[0].borrow().creation.day, 26);
 }
 
+fn get_parent_title(index: usize, db: &V1Kpdb) -> String {
+    let mut group = db.groups[index].borrow_mut();
+    let parent = group.parent.as_mut().unwrap().borrow();
+    parent.title.clone()
+}
+
+fn get_children_title(parent_index: usize, children_index: usize,
+                      db: &V1Kpdb) -> String {
+    let group = db.groups[parent_index].borrow_mut();
+    let children_ref = group.children[children_index].upgrade().unwrap();
+    let children = children_ref.borrow();
+    children.title.clone()
+}
+
+fn get_entry_parent_title(index: usize, db: &V1Kpdb) -> String {
+    let mut entry = db.entries[index].borrow_mut();
+    let group = entry.group.as_mut().unwrap().borrow();
+    group.title.clone()
+}
 #[test]
 fn test_create_group_tree() {
     let mut db = V1Kpdb::new("test/test_parsing.kdb".to_string(),
                              Some("test".to_string()), None).ok().unwrap();
     assert_eq!(db.load().is_ok(), true);
 
-    let mut group = db.groups[1].borrow_mut();
-    let parent = group.parent.as_mut().unwrap().borrow();
-    let parent_title = parent.title.as_slice();
-    assert_eq!(parent_title, "Internet");
-    // assert_eq!(db.groups[2].borrow_mut().parent.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "Internet");
-    // assert_eq!(db.groups[2].borrow_mut().children[0]
-    //            .upgrade().unwrap().borrow().title.as_slice(), "22");
-    // assert_eq!(db.groups[2].borrow_mut().children[1]
-    //            .upgrade().unwrap().borrow().title.as_slice(), "21");
-    // assert_eq!(db.groups[3].borrow_mut().parent.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "11");
-    // assert_eq!(db.groups[4].borrow_mut().parent.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "11");
-    // assert_eq!(db.groups[4].borrow_mut().children[0]
-    //            .upgrade().unwrap().borrow().title.as_slice(), "32");
-    // assert_eq!(db.groups[4].borrow_mut().children[1]
-    //            .upgrade().unwrap().borrow().title.as_slice(), "31");
-    // assert_eq!(db.groups[5].borrow_mut().parent.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "21");
-    // assert_eq!(db.groups[6].borrow_mut().parent.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "21");
+    assert_eq!(get_parent_title(1, &db).as_slice(), "Internet");
+    assert_eq!(get_parent_title(2, &db).as_slice(), "Internet");
+    assert_eq!(get_children_title(2, 0, &db).as_slice(), "22");
+    assert_eq!(get_children_title(2, 1, &db).as_slice(), "21");
+    assert_eq!(get_parent_title(3, &db).as_slice(), "11");
+    assert_eq!(get_parent_title(4, &db).as_slice(), "11");
+    assert_eq!(get_children_title(4, 0, &db).as_slice(), "32");
+    assert_eq!(get_children_title(4, 1, &db).as_slice(), "31");
+    assert_eq!(get_parent_title(5, &db).as_slice(), "21");
+    assert_eq!(get_parent_title(6, &db).as_slice(), "21");
 
-    // assert_eq!(db.entries[0].borrow_mut().group.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "Internet");
-    // assert_eq!(db.entries[1].borrow_mut().group.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "11");
-    // assert_eq!(db.entries[2].borrow_mut().group.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "12");
-    // assert_eq!(db.entries[3].borrow_mut().group.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "21");
-    // assert_eq!(db.entries[4].borrow_mut().group.as_mut()
-    //            .unwrap().borrow().title.as_slice(), "22");
+    assert_eq!(get_entry_parent_title(0, &db), "Internet");
+    assert_eq!(get_entry_parent_title(1, &db), "11");
+    assert_eq!(get_entry_parent_title(2, &db), "12");
+    assert_eq!(get_entry_parent_title(3, &db), "21");
+    assert_eq!(get_entry_parent_title(4, &db), "22");
 }

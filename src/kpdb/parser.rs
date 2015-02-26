@@ -32,6 +32,7 @@ fn slice_to_u32(slice: &[u8]) -> Result<u32, V1KpdbError> {
     Ok(value | slice[0] as u32)
 }
 
+//Implements a parser to parse a KeePass DB
 pub struct Parser {
     pos: usize,
     decrypted_database: Vec<u8>,
@@ -141,7 +142,7 @@ impl Parser {
     }
 
     // Read a group field from the raw data by it's field type
-    pub fn read_group_field(&mut self, mut group: RefMut<V1Group>, field_type: u16, field_size: u32,
+    fn read_group_field(&mut self, mut group: RefMut<V1Group>, field_type: u16, field_size: u32,
                             ) -> Result<(), V1KpdbError> {
         let db_slice = if field_type == 0x0002 {
             &self.decrypted_database[self.pos..self.pos + (field_size - 1) as usize]
