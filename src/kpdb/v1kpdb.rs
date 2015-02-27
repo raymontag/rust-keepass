@@ -1,6 +1,8 @@
 use std::cell::{RefCell};
 use std::rc::Rc;
 
+use chrono::{DateTime, Local};
+
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
 use kpdb::v1error::V1KpdbError;
@@ -43,6 +45,23 @@ pub struct V1Kpdb {
     // Used to de- and encrypt the database
     crypter: Crypter,
 } 
+
+trait GetIndex<T> {
+    fn get_index(&self, item: &T) -> Result<usize, V1KpdbError>;
+}
+
+impl<T: Eq> GetIndex<T> for Vec<Rc<RefCell<T>>> {
+    fn get_index(&self, item: &T)
+                  -> Result<usize, V1KpdbError> {
+        for index in range(0, self.len()) {
+            if *(self[index].borrow()) == *item {
+                return Ok(index);
+            }
+        }
+
+        Err(V1KpdbError::ParentErr)
+    }
+}
 
 impl V1Kpdb {
     /// Call this to create a new database instance. You have to call load
@@ -94,6 +113,44 @@ impl V1Kpdb {
                 
         // Now create the group tree and sort the entries to their groups
         try!(Parser::create_group_tree(self, levels));
+        Ok(())
+    }
+
+    /// Create a new group
+    pub fn create_group(&mut self, title: String, expire: Option<DateTime<Local>>, image: Option<u32>,
+                        parent: Option<Rc<RefCell<V1Group>>>) -> Result<(), V1KpdbError> {        
+        let mut new_id: u32 = 1;
+        for group in self.groups.iter() {
+            let id = group.borrow().id;
+            if id >= new_id {
+                new_id = id + 1;
+            }
+        }
+
+        let new_group = Rc::new(RefCell::new(V1Group::new()));
+        new_group.borrow_mut().title = title;
+        match expire {
+            Some(s) => { new_group.borrow_mut().expire = s },
+            None => {}, // is 12-28-2999 23:59:59 through V1Group::new
+        }
+        match image {
+            Some(s) => { new_group.borrow_mut().image = s },
+            None => {}, // is 0 through V1Group::new
+        }
+        match parent {
+            Some(s) => { new_group.borrow_mut().parent = Some(s.clone());
+                         s.borrow_mut().children.push(
+                             new_group.clone().downgrade());
+                         let index = try!(self.groups.get_index(&*s.borrow()));
+                         self.groups.insert(index + 1, new_group);
+                         
+            },
+            None =>    { new_group.borrow_mut().parent = Some(self.root_group
+                                                            .clone());
+                         self.root_group.borrow_mut().children.push(
+                             new_group.clone().downgrade());
+                         self.groups.push(new_group); },
+        }
         Ok(())
     }
 }

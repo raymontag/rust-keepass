@@ -35,6 +35,8 @@ pub enum V1KpdbError {
     TreeErr,
     /// Password and/or keyfile needed but at least one of both
     PassErr,
+    /// Can't find parent in groups
+    ParentErr,
 }
 
 impl fmt::Display for V1KpdbError {
@@ -57,6 +59,7 @@ impl error::Error for V1KpdbError {
             OffsetErr => "Some error while parsing the database. Probably a corrupted file",
             TreeErr => "Group tree is corrupted",
             PassErr => "Password and/or keyfile needed but at least one of both",
+            ParentErr => "Can't find parent in groups",
         }
     }
 }

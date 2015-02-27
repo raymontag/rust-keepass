@@ -1,3 +1,5 @@
+use chrono::{Timelike, Local, TimeZone, Datelike};
+
 use kpdb::v1kpdb::V1Kpdb;
 use kpdb::v1error::V1KpdbError;
 
@@ -28,3 +30,51 @@ fn test_new() {
     };
 }
 
+#[test]
+fn test_create_group_w_title_only() {
+    let mut result = V1Kpdb::new("test/test_password.kdb".to_string(),
+                                 Some("test".to_string()), None);
+    match result {
+        Ok(ref mut e)  => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    assert_eq!(db.create_group("test".to_string(), None, None, None).is_ok(), true);
+    let mut new_group = db.groups[db.groups.len() - 1].borrow_mut();
+    assert_eq!(new_group.title, "test");
+    // TODO: Bug in chrono gives 2999-12-27 and not 28!
+    assert_eq!((new_group.expire.year(), new_group.expire.month(), new_group.expire.day()),
+               (2999, 12, 27));
+    assert_eq!((new_group.expire.hour(), new_group.expire.minute(), new_group.expire.second()),
+               (23, 59, 59));
+    assert_eq!(new_group.image, 0);
+    let parent = new_group.parent.as_mut().unwrap();
+    assert_eq!(parent.borrow().id, 0);
+}
+
+#[test]
+fn test_create_group_w_everything() {
+    let mut result = V1Kpdb::new("test/test_parsing.kdb".to_string(),
+                                 Some("test".to_string()), None);
+    match result {
+        Ok(ref mut e)  => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    let expire = Local.ymd(2015, 2, 28).and_hms(10,10,10);
+    let parent = db.groups[1].clone();
+    println!("{}", parent.borrow().title);
+    let image = 2;
+    
+    assert_eq!(db.create_group("test".to_string(), Some(expire), Some(image), Some(parent)).is_ok(), true);
+    let mut new_group = db.groups[2].borrow_mut();
+    assert_eq!(new_group.title, "test");
+    // TODO: Bug in chrono gives 2999-12-27 and not 28!
+    assert_eq!((new_group.expire.year(), new_group.expire.month(), new_group.expire.day()),
+               (2015, 2, 27));
+    assert_eq!(new_group.image, 2);
+    let parent = new_group.parent.as_mut().unwrap();
+    assert_eq!(parent.borrow().title.as_slice(), "12");
+}
