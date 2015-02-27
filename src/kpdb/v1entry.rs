@@ -66,3 +66,10 @@ impl V1Entry {
     }
 }
 
+impl PartialEq for V1Entry{
+    fn eq(&self, other: &V1Entry) -> bool{
+        self.uuid == other.uuid
+    }
+}
+
+impl Eq for V1Entry {}

@@ -57,3 +57,11 @@ impl V1Group {
         }
     }
 }
+
+impl PartialEq for V1Group {
+    fn eq(&self, other: &V1Group) -> bool{
+        self.id == other.id
+    }
+}
+
+impl Eq for V1Group {}
