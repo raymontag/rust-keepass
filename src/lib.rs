@@ -7,6 +7,7 @@ extern crate libc;
 extern crate openssl;
 extern crate rand;
 extern crate "rustc-serialize" as rustc_serialize;
+extern crate chrono;
 
 pub mod sec_str;
 pub mod kpdb;

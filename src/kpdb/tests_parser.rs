@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use chrono::Datelike;
+
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
 use kpdb::v1header::V1Header;
@@ -37,17 +39,14 @@ fn test_parse_groups () {
     assert_eq!(groups[0].borrow().title.as_slice(), "Internet");
     assert_eq!(groups[0].borrow().image, 1);
     assert_eq!(groups[0].borrow().level, 0);
-    assert_eq!(groups[0].borrow().creation.year, 0);
-    assert_eq!(groups[0].borrow().creation.month, 0);
-    assert_eq!(groups[0].borrow().creation.day, 0);
 
     assert_eq!(groups[1].borrow().id, 2);
     assert_eq!(groups[1].borrow().title.as_slice(), "test");
     assert_eq!(groups[1].borrow().image, 1);
     assert_eq!(groups[1].borrow().level, 0);
-    assert_eq!(groups[1].borrow().creation.year, 2014);
-    assert_eq!(groups[1].borrow().creation.month, 2);
-    assert_eq!(groups[1].borrow().creation.day, 26);
+    assert_eq!(groups[1].borrow().creation.year(), 2014);
+    assert_eq!(groups[1].borrow().creation.month(), 2);
+    assert_eq!(groups[1].borrow().creation.day(), 25);
 }
 
 #[test]
@@ -79,9 +78,9 @@ fn test_parse_entries () {
     assert_eq!(entries[0].borrow().password.string.as_slice(), "DLE\"H<JZ|E");
     assert_eq!(entries[0].borrow().image, 1);
     assert_eq!(entries[0].borrow().group_id, 1);
-    assert_eq!(entries[0].borrow().creation.year, 2014);
-    assert_eq!(entries[0].borrow().creation.month, 2);
-    assert_eq!(entries[0].borrow().creation.day, 26);
+    assert_eq!(entries[0].borrow().creation.year(), 2014);
+    assert_eq!(entries[0].borrow().creation.month(), 2);
+    assert_eq!(entries[0].borrow().creation.day(), 25);
 }
 
 fn get_parent_title(index: usize, db: &V1Kpdb) -> String {

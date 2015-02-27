@@ -5,11 +5,12 @@ use std::ptr;
 use std::rc::Rc;
 use std::str;
 
+use chrono::{DateTime, Local, TimeZone};
+
 use kpdb::v1error::V1KpdbError;
 use kpdb::v1kpdb::V1Kpdb;
 use kpdb::v1entry::V1Entry;
 use kpdb::v1group::V1Group;
-use kpdb::tm::Tm;
 use super::super::sec_str::SecureString;
 
 fn slice_to_u16(slice: &[u8]) -> Result<u16, V1KpdbError> {
@@ -206,7 +207,7 @@ impl Parser {
     }
 
     // Parse a date. Taken from original KeePass-code
-    fn get_date(date_bytes: &[u8]) -> Tm {
+    fn get_date(date_bytes: &[u8]) -> DateTime<Local> {
         let dw1 = date_bytes[0] as i32;
         let dw2 = date_bytes[1] as i32;
         let dw3 = date_bytes[2] as i32;
@@ -214,14 +215,13 @@ impl Parser {
         let dw5 = date_bytes[4] as i32;
 
         let year = (dw1 << 6) | (dw2 >> 2);
-        let month = ((dw2 & 0x03) << 2) | (dw3 >> 6);
-        let day = (dw3 >> 1) & 0x1F;
-        let hour = ((dw3 & 0x01) << 4) | (dw4 >> 4);
-        let minute = ((dw4 & 0x0F) << 2) | (dw5 >> 6);
-        let second = dw5 & 0x3F;
+        let month = (((dw2 & 0x03) << 2) | (dw3 >> 6)) as u32;
+        let day = ((dw3 >> 1) & 0x1F) as u32;
+        let hour = (((dw3 & 0x01) << 4) | (dw4 >> 4)) as u32;
+        let minute = (((dw4 & 0x0F) << 2) | (dw5 >> 6)) as u32;
+        let second = (dw5 & 0x3F) as u32;
 
-        Tm { year: year, month: month, day: day,
-             hour: hour, minute: minute, second: second }
+        Local.ymd(year, month, day).and_hms(hour, minute, second)
     }
 
     // Create the group tree from the level data

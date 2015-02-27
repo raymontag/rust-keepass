@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use super::tm::Tm;
+use chrono::{DateTime, Local, TimeZone};
+
 use super::v1entry::V1Entry;
 
 #[doc = "
@@ -17,13 +18,13 @@ pub struct V1Group {
     /// Level in group tree
     pub level:       u16,
     /// Date of creation
-    pub creation:    Tm,
+    pub creation:    DateTime<Local>,
     /// Date of last modification
-    pub last_mod:    Tm,
+    pub last_mod:    DateTime<Local>,
     /// Date of last access
-    pub last_access: Tm,
+    pub last_access: DateTime<Local>,
     /// Expiration date for the whole group
-    pub expire:      Tm,
+    pub expire:      DateTime<Local>,
     /// ??
     pub flags:       u32,
     /// Pointer to the parent group
@@ -44,10 +45,10 @@ impl V1Group {
                   title:       "".to_string(),
                   image:       0,
                   level:       0,
-                  creation:    Tm::new(),
-                  last_mod:    Tm::new(),
-                  last_access: Tm::new(),
-                  expire:      Tm::new(),
+                  creation:    Local::now(),
+                  last_mod:    Local::now(),
+                  last_access: Local::now(),
+                  expire:      Local.ymd(2999, 12, 28).and_hms(23, 59, 59),
                   flags:       0,
                   parent:      None,
                   children:    vec![],

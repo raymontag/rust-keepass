@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::tm::Tm;
+use chrono::{DateTime, Local, TimeZone};
+
 use super::v1group::V1Group;
 use super::super::sec_str::SecureString;
 
@@ -32,13 +33,13 @@ pub struct V1Entry {
     /// ???
     pub binary: Vec<u8>,
     /// Date of creation
-    pub creation: Tm,
+    pub creation: DateTime<Local>,
     /// Date of last modification
-    pub last_mod: Tm,
+    pub last_mod: DateTime<Local>,
     /// Date of last access
-    pub last_access: Tm,
+    pub last_access: DateTime<Local>,
     /// Expiration date
-    pub expire: Tm,
+    pub expire: DateTime<Local>,
 }
 
 impl V1Entry {
@@ -57,10 +58,10 @@ impl V1Entry {
                   comment: "".to_string(),
                   binary_desc: "".to_string(),
                   binary: vec![],
-                  creation: Tm::new(),
-                  last_mod: Tm::new(),
-                  last_access: Tm::new(),
-                  expire: Tm::new(),
+                  creation: Local::now(),
+                  last_mod: Local::now(),
+                  last_access: Local::now(),
+                  expire: Local.ymd(2999, 12, 28).and_hms(23, 59, 59),
         }
     }
 }
