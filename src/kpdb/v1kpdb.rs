@@ -117,6 +117,7 @@ impl V1Kpdb {
     }
 
     /// Create a new group
+    /// 
     pub fn create_group(&mut self, title: String, expire: Option<DateTime<Local>>, image: Option<u32>,
                         parent: Option<Rc<RefCell<V1Group>>>) -> Result<(), V1KpdbError> {        
         let mut new_id: u32 = 1;
@@ -138,10 +139,10 @@ impl V1Kpdb {
             None => {}, // is 0 through V1Group::new
         }
         match parent {
-            Some(s) => { new_group.borrow_mut().parent = Some(s.clone());
+            Some(s) => { let index = try!(self.groups.get_index(&*s.borrow()));
+                         new_group.borrow_mut().parent = Some(s.clone());
                          s.borrow_mut().children.push(
                              new_group.clone().downgrade());
-                         let index = try!(self.groups.get_index(&*s.borrow()));
                          self.groups.insert(index + 1, new_group);
                          
             },
@@ -151,6 +152,8 @@ impl V1Kpdb {
                              new_group.clone().downgrade());
                          self.groups.push(new_group); },
         }
+
+        self.header.num_groups += 1;
         Ok(())
     }
 }
