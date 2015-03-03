@@ -46,9 +46,8 @@ fn test_create_group_w_title_only() {
 
     let mut new_group = db.groups[db.groups.len() - 1].borrow_mut();
     assert_eq!(new_group.title, "test");
-    // TODO: Bug in chrono gives 2999-12-27 and not 28!
     assert_eq!((new_group.expire.year(), new_group.expire.month(), new_group.expire.day()),
-               (2999, 12, 27));
+               (2999, 12, 28));
     assert_eq!((new_group.expire.hour(), new_group.expire.minute(), new_group.expire.second()),
                (23, 59, 59));
     assert_eq!(new_group.image, 0);
@@ -80,9 +79,8 @@ fn test_create_group_w_everything() {
     
     let mut new_group = db.groups[2].borrow_mut();
     assert_eq!(new_group.title, "test");
-    // TODO: Bug in chrono gives 2999-12-27 and not 28!
     assert_eq!((new_group.expire.year(), new_group.expire.month(), new_group.expire.day()),
-               (2015, 2, 27));
+               (2015, 2, 28));
     assert_eq!(new_group.image, 2);
     
     let parent = new_group.parent.as_mut().unwrap();

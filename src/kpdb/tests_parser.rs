@@ -46,7 +46,7 @@ fn test_parse_groups () {
     assert_eq!(groups[1].borrow().level, 0);
     assert_eq!(groups[1].borrow().creation.year(), 2014);
     assert_eq!(groups[1].borrow().creation.month(), 2);
-    assert_eq!(groups[1].borrow().creation.day(), 25);
+    assert_eq!(groups[1].borrow().creation.day(), 26);
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn test_parse_entries () {
     assert_eq!(entries[0].borrow().group_id, 1);
     assert_eq!(entries[0].borrow().creation.year(), 2014);
     assert_eq!(entries[0].borrow().creation.month(), 2);
-    assert_eq!(entries[0].borrow().creation.day(), 25);
+    assert_eq!(entries[0].borrow().creation.day(), 26);
 }
 
 fn get_parent_title(index: usize, db: &V1Kpdb) -> String {

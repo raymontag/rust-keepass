@@ -3,6 +3,7 @@ use libc::funcs::posix88::mman;
 use std::old_io::SeekStyle;
 use std::old_io::fs::File;
 use std::old_io::IoErrorKind::EndOfFile;
+use std::io::Write;
 use std::ptr;
 
 use openssl::crypto::hash::{Hasher, Type};

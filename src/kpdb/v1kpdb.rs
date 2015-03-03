@@ -99,7 +99,8 @@ impl V1Kpdb {
     pub fn load(&mut self) -> Result<(), V1KpdbError> {
         // First read header and decrypt the database
         try!(self.header.read_header(self.path.clone()));
-        let decrypted_database = try!(self.crypter.decrypt_database(&self.header));
+        let decrypted_database = try!(self.crypter
+                                      .decrypt_database(&self.header));
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
         let mut parser = Parser::new(decrypted_database, self.header.num_groups,
@@ -117,9 +118,23 @@ impl V1Kpdb {
     }
 
     /// Create a new group
-    /// 
-    pub fn create_group(&mut self, title: String, expire: Option<DateTime<Local>>, image: Option<u32>,
-                        parent: Option<Rc<RefCell<V1Group>>>) -> Result<(), V1KpdbError> {        
+    ///
+    /// * title: title of the new group
+    ///
+    /// * expire: expiration date of the group
+    ///           None means that the group expires never which itself
+    ///           corresponds to the date 28-12-2999 23:59:59
+    ///
+    /// * image: an image number, used in KeePass and KeePassX for the group
+    ///          icon. None means 0
+    ///
+    /// * parent: a group inside the groups vector which should be the parent in
+    ///           the group tree. None means that the root group is the parent
+    pub fn create_group(&mut self, title: String,
+                        expire: Option<DateTime<Local>>,
+                        image: Option<u32>,
+                        parent: Option<Rc<RefCell<V1Group>>>)
+                        -> Result<(), V1KpdbError> {        
         let mut new_id: u32 = 1;
         for group in self.groups.iter() {
             let id = group.borrow().id;
@@ -155,6 +170,6 @@ impl V1Kpdb {
 
         self.header.num_groups += 1;
         Ok(())
-    }
+                        }
 }
 
