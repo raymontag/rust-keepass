@@ -54,12 +54,12 @@ impl SecureString {
     /// Overwrite the string with zeroes. Call this everytime after unlock() if you don't
     /// ned the string anymore.
     pub fn delete(&self) {
-        // Use zero_memory instead of just overwriting the string with string = ... to
+        // Use write_bytes instead of just overwriting the string with string = ... to
         // make sure that no copy of the string exists in memory
         // We couldn't find documentation if overwriting a string with a string of the
         // same length will leave the original string or really manipulating the original
         // one.
-        unsafe { ptr::zero_memory(self.string.as_ptr() as *mut c_void,
+        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void, 0u8,
                                   self.string.len()) };
     }
     
@@ -87,7 +87,7 @@ impl Drop for SecureString {
         self.delete();
         unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
                               self.string.len() as size_t); }
-        unsafe { ptr::zero_memory(self.encrypted_string.as_ptr() as *mut c_void,
+        unsafe { ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
                                   self.encrypted_string.len()) };
         unsafe { mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
                                self.encrypted_string.len() as size_t); }
@@ -98,7 +98,7 @@ impl Drop for SecureString {
 mod tests {
     use super::SecureString;
     use std::str;
-    use std::ptr::copy_memory;
+    use std::ptr::copy;
 
     #[test]
     fn test_drop() {
@@ -108,12 +108,12 @@ mod tests {
             test_vec.set_len(4);
             test_vec2.set_len(4);
             let str = "drop".to_string();
-            let sec_str = SecureString::new(str);
-            let enc_str_ptr = sec_str.encrypted_string.as_ptr();
-            let str_ptr = sec_str.string.as_ptr();
+            let mut sec_str = SecureString::new(str);
+            let enc_str_ptr = sec_str.encrypted_string.as_mut_ptr();
+            let str_ptr = sec_str.string.as_mut_vec().as_mut_ptr();
             drop(sec_str);
-            copy_memory(test_vec.as_mut_ptr(), enc_str_ptr, 4);
-            copy_memory(test_vec2.as_mut_ptr(), str_ptr, 4);
+            copy(test_vec.as_mut_ptr(), enc_str_ptr, 4);
+            copy(test_vec2.as_mut_ptr(), str_ptr, 4);
         }
         assert_eq!(test_vec,  vec![0u8, 0u8, 0u8, 0u8]);
         assert_eq!(test_vec2, vec![0u8, 0u8, 0u8, 0u8]);
@@ -124,19 +124,19 @@ mod tests {
         // Ownership of str moves to SecureString <- secure input interface
         let mut sec_str = SecureString::new(str);
         sec_str.unlock();
-        assert_eq!(sec_str.string.as_slice(), "Hello, box!");
+        assert_eq!(sec_str.string.as_str(), "Hello, box!");
     }
 
     #[test]
     fn test_delete() {
         let str = "delete".to_string();
         let sec_str = SecureString::new(str);
-        assert_eq!(sec_str.string.as_slice(), "\0\0\0\0\0\0");
+        assert_eq!(sec_str.string.as_str(), "\0\0\0\0\0\0");
         
         // Test with umlauts
         let str = "ä".to_string();
         let sec_str = SecureString::new(str);
-        assert_eq!(sec_str.string.as_slice(), "\0\0");        
+        assert_eq!(sec_str.string.as_str(), "\0\0");        
     }
 
     #[test]
@@ -144,10 +144,10 @@ mod tests {
         let str = "delete".to_string();
         let mut sec_str = SecureString::new(str);
 
-        assert!(str::from_utf8(sec_str.encrypted_string.as_slice()) !=  Ok("delete"));
+        assert!(str::from_utf8(sec_str.encrypted_string.as_ref()) !=  Ok("delete"));
 
         sec_str.unlock();
-        assert_eq!(sec_str.string.as_slice(), "delete");
+        assert_eq!(sec_str.string.as_str(), "delete");
     }
 
     #[test]

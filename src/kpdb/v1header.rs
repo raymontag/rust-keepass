@@ -1,7 +1,8 @@
-use std::old_io::IoResult;
-use std::old_io::fs::File;
+use std::fs::File;
+use std::io::Read;
 
-use super::v1error::V1KpdbError;
+use kpdb::common::slice_to_u32;
+use kpdb::v1error::V1KpdbError;
 
 #[doc = "
 V1Header implements the header of a KeePass v1.x database.
@@ -53,38 +54,50 @@ impl V1Header {
         }
     }
 
-    // Used to read header. Needed to wrap IoResult
-    fn read_header_(mut file: File) -> IoResult<V1Header> {
-        let signature1 = try!(file.read_le_u32());
-        let signature2 = try!(file.read_le_u32());
-        let enc_flag = try!(file.read_le_u32());
-        let version = try!(file.read_le_u32());
-        let final_randomseed = try!(file.read_exact(16usize));
-        let iv = try!(file.read_exact(16usize));
-        let num_groups = try!(file.read_le_u32());
-        let num_entries = try!(file.read_le_u32());
-        let contents_hash = try!(file.read_exact(32usize));
-        let transf_randomseed = try!(file.read_exact(32usize));
-        let key_transf_rounds = try!(file.read_le_u32());
-
-        Ok(V1Header { signature1: signature1,
-                      signature2: signature2,
-                      enc_flag: enc_flag,
-                      version: version,
-                      final_randomseed: final_randomseed,
-                      iv: iv,
-                      num_groups: num_groups,
-                      num_entries: num_entries,
-                      contents_hash: contents_hash,
-                      transf_randomseed: transf_randomseed,
-                      key_transf_rounds: key_transf_rounds })
-    }
-
     /// Use this to read the header in. path is the filepath of the database
     pub fn read_header(&mut self, path: String) -> Result<(), V1KpdbError> {
-        // Map IoResult to Result with V1KpdbError
-        let file = try!(File::open(&Path::new(path)).map_err(|_| V1KpdbError::FileErr));
-        *self = try!(V1Header::read_header_(file).map_err(|_| V1KpdbError::ReadErr));
+        let file = try!(File::open(path)
+                        .map_err(|_| V1KpdbError::FileErr));
+        let mut file_bytes = file.bytes();
+        let mut header_bytes: Vec<u8> = vec![];
+
+        let mut counter = 0;
+        while counter < 124 {
+            match file_bytes.next() {
+                Some(s) => header_bytes.push(try!(s
+                                                  .map_err(|_| V1KpdbError::ReadErr))),
+                None    => return Err(V1KpdbError::ReadErr),
+            }
+            counter += 1;
+        }
+
+        let signature1       = try!(slice_to_u32(&header_bytes[0..4]));
+        let signature2       = try!(slice_to_u32(&header_bytes[4..8]));
+        let enc_flag         = try!(slice_to_u32(&header_bytes[8..12]));
+        let version          = try!(slice_to_u32(&header_bytes[12..16]));
+        let mut final_randomseed: Vec<u8> = vec![];
+        for i in 16..32 { final_randomseed.push(header_bytes[i]); }
+        let mut iv: Vec<u8> = vec![];
+        for i in 32..48 { iv.push(header_bytes[i]); }
+        let num_groups  = try!(slice_to_u32(&header_bytes[48..52]));
+        let num_entries = try!(slice_to_u32(&header_bytes[52..56]));
+        let mut contents_hash: Vec<u8> = vec![];
+        for i in 56..88 { contents_hash.push(header_bytes[i]); }
+        let mut transf_randomseed: Vec<u8> = vec![];
+        for i in 88..120 { transf_randomseed.push(header_bytes[i]); }
+        let key_transf_rounds = try!(slice_to_u32(&header_bytes[120..124]));
+
+        *self = V1Header { signature1: signature1,
+                           signature2: signature2,
+                           enc_flag: enc_flag,
+                           version: version,
+                           final_randomseed: final_randomseed,
+                           iv: iv,
+                           num_groups: num_groups,
+                           num_entries: num_entries,
+                           contents_hash: contents_hash,
+                           transf_randomseed: transf_randomseed,
+                           key_transf_rounds: key_transf_rounds };
         
         try!(V1Header::check_signatures(self));
         try!(V1Header::check_enc_flag(self));

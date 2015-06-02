@@ -1,8 +1,7 @@
 use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
-use std::old_io::SeekStyle;
-use std::old_io::fs::File;
-use std::old_io::IoErrorKind::EndOfFile;
+use std::io::{SeekFrom, Read, Seek};
+use std::fs::File;
 use std::io::Write;
 use std::ptr;
 
@@ -29,12 +28,13 @@ impl Crypter {
     }
     
     pub fn decrypt_database(&mut self, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
-        let mut file = try!(File::open(&Path::new(self.path.clone()))
+        let mut file = try!(File::open(self.path.clone())
                             .map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(124i64, SeekStyle::SeekSet)
+        try!(file.seek(SeekFrom::Start(124u64))
              .map_err(|_| V1KpdbError::FileErr));
-        let crypted_database = try!(file.read_to_end()
-                                    .map_err(|_| V1KpdbError::ReadErr));
+        let mut crypted_database: Vec<u8> = vec![];
+        try!(file.read_to_end(&mut crypted_database)
+             .map_err(|_| V1KpdbError::ReadErr));
 
         // Create the key and decrypt the database finally
         let masterkey = match (&mut self.password, &mut self.keyfile) {
@@ -61,9 +61,9 @@ impl Crypter {
                      .map_err(|_| V1KpdbError::DecryptErr));
 
                 // Zero out unneeded keys
-                unsafe { ptr::zero_memory(passwordkey.as_ptr() as *mut c_void,
+                unsafe { ptr::write_bytes(passwordkey.as_ptr() as *mut c_void, 0u8,
                                           passwordkey.len());
-                         ptr::zero_memory(keyfilekey.as_ptr() as *mut c_void,
+                         ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void, 0u8,
                                           keyfilekey.len());
                          mman::munlock(passwordkey.as_ptr() as *const c_void,
                                        passwordkey.len() as size_t);
@@ -114,68 +114,58 @@ impl Crypter {
         //unlock SecureString
         keyfile.unlock();
         // keyfile.string.as_bytes() is secure as just a reference is returned
-        let keyfile_path = keyfile.string.as_bytes();
-        
-        let mut file = try!(File::open(&Path::new(keyfile_path))
+        let mut file = try!(File::open(keyfile.string.as_str())
                             .map_err(|_| V1KpdbError::FileErr));
         // Zero out plaintext keyfile path
         keyfile.delete();
 
-        try!(file.seek(0i64, SeekStyle::SeekEnd)
-             .map_err(|_| V1KpdbError::FileErr));
-        let file_size = try!(file.tell().map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(0i64, SeekStyle::SeekSet)
+        let file_size = try!(file.seek(SeekFrom::End(0i64))
+                             .map_err(|_| V1KpdbError::FileErr));
+        try!(file.seek(SeekFrom::Start(0u64))
              .map_err(|_| V1KpdbError::FileErr));
         
         if file_size == 32 {
-            let mut key: Vec<u8>;
-            key = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
+            let mut key: Vec<u8> = vec![];
+            try!(file.read_to_end(&mut key).map_err(|_| V1KpdbError::ReadErr));
             return Ok(key);
         } else if file_size == 64 {
             // interpret characters as encoded hex if possible (e.g. "FF" => 0xff)
-            match file.read_to_string() {
-                Ok(e1) => {
-                    match e1.as_slice().from_hex() {
+            let mut key: String = "".to_string();
+            match file.read_to_string(&mut key) {
+                Ok(_) => {
+                    match key.as_str().from_hex() {
                         Ok(e2) => return Ok(e2),
                         Err(_) => {},
                     }
                 },
                 Err(_) => {},
             }
-            try!(file.seek(0i64, SeekStyle::SeekSet)
+            try!(file.seek(SeekFrom::Start(0u64))
                  .map_err(|_| V1KpdbError::FileErr));
         }
 
         // Read up to 2048 bytes and hash them
         let mut hasher = Hasher::new(Type::SHA256);
 
-        loop {
-            let mut read_bytes = 0;
-            let mut buf: Vec<u8> = vec![];
 
-            // We use this construct instead of file.read()
-            // to handle EndOfFile _and_ get the number
-            // of read bytes
-            for _ in (0..2048) {
-                match file.read_byte() {
-                    Ok(o) => buf.push(o),
-                    Err(e) => {
-                        if e.kind == EndOfFile {
-                            break;
-                        } else {
-                            return Err(V1KpdbError::ReadErr);
-                        }
-                    }
-                }
-                read_bytes += 1;
-            }
-            try!(hasher.write_all(buf.as_slice())
-                 .map_err(|_| V1KpdbError::DecryptErr));
-            if read_bytes < 2048 {
-                break;
+        let file_iterator = file.bytes();
+        let mut read_bytes = 0;
+        let mut buf: Vec<u8> = vec![];
+        for byte in file_iterator {
+            buf.push(try!(byte
+                          .map_err(|_| V1KpdbError::ReadErr)));
+            read_bytes += 1;
+
+            if read_bytes % 2048 == 0 {
+                try!(hasher.write_all(buf.as_slice())
+                     .map_err(|_| V1KpdbError::DecryptErr));
             }
         }
 
+        if read_bytes % 2048 != 0 {
+            try!(hasher.write_all(buf.as_slice())
+                 .map_err(|_| V1KpdbError::DecryptErr));
+        }
         let key = hasher.finish();
         Ok(key)
     }
@@ -201,7 +191,7 @@ impl Crypter {
              .map_err(|_| V1KpdbError::DecryptErr));
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void,
+        unsafe { ptr::write_bytes(masterkey.as_ptr() as *mut c_void, 0u8,
                                   masterkey.len());
                  mman::munlock(masterkey.as_ptr() as *const c_void,
                                masterkey.len() as size_t); }
@@ -219,7 +209,7 @@ impl Crypter {
                                        crypted_database.as_slice());
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void,
+        unsafe { ptr::write_bytes(finalkey.as_ptr() as *mut c_void, 0u8,
                                   finalkey.len());
                  mman::munlock(finalkey.as_ptr() as *const c_void,
                                finalkey.len() as size_t); }

@@ -7,31 +7,13 @@ use std::str;
 
 use chrono::{DateTime, Local, TimeZone};
 
+use kpdb::common::{slice_to_u16, slice_to_u32};
 use kpdb::v1error::V1KpdbError;
 use kpdb::v1kpdb::V1Kpdb;
 use kpdb::v1entry::V1Entry;
 use kpdb::v1group::V1Group;
-use super::super::sec_str::SecureString;
-
-fn slice_to_u16(slice: &[u8]) -> Result<u16, V1KpdbError> {
-    if slice.len() < 2 {
-        return Err(V1KpdbError::ConvertErr);
-    }
-
-    let value = (slice[1] as u16) << 8;
-    Ok(value | slice[0] as u16)
-}
-    
-fn slice_to_u32(slice: &[u8]) -> Result<u32, V1KpdbError> {
-    if slice.len() < 4 {
-        return Err(V1KpdbError::ConvertErr);
-    }
-        
-    let mut value = (slice[3] as u32) << 24;
-    value |= (slice[2] as u32) << 16;
-    value |= (slice[1] as u32) << 8;
-    Ok(value | slice[0] as u32)
-}
+//use super::super::sec_str::SecureString;
+use sec_str::SecureString;
 
 //Implements a parser to parse a KeePass DB
 pub struct Parser {
@@ -280,7 +262,7 @@ impl Parser {
     }
     pub fn delete_decrypted_content(&mut self) {
         // Zero out raw data as it's not needed anymore
-        unsafe { ptr::zero_memory(self.decrypted_database.as_ptr() as *mut c_void,
+        unsafe { ptr::write_bytes(self.decrypted_database.as_ptr() as *mut c_void, 0u8,
                                   self.decrypted_database.len());
                  mman::munlock(self.decrypted_database.as_ptr() as *const c_void,
                                self.decrypted_database.len() as size_t); }
