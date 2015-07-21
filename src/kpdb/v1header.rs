@@ -66,8 +66,7 @@ impl V1Header {
             Err(_) => return Err(V1KpdbError::ReadErr),
         };
 
-        *self = try!(Parser::parse_header(header_bytes));
-        
+        *self = try!(Parser::parse_header(header_bytes));        
         try!(V1Header::check_signatures(self));
         try!(V1Header::check_enc_flag(self));
         try!(V1Header::check_version(self));

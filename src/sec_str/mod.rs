@@ -54,13 +54,13 @@ impl SecureString {
     /// Overwrite the string with zeroes. Call this everytime after unlock() if you don't
     /// ned the string anymore.
     pub fn delete(&self) {
-        // Use zero_memory instead of just overwriting the string with string = ... to
+        // Use write_bytes instead of just overwriting the string with string = ... to
         // make sure that no copy of the string exists in memory
         // We couldn't find documentation if overwriting a string with a string of the
         // same length will leave the original string or really manipulating the original
         // one.
-        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void,
-                                  0u8, self.string.len()) };
+        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void, 0u8,
+                                  self.string.len()) };
     }
     
     fn lock(&mut self) {
@@ -87,8 +87,8 @@ impl Drop for SecureString {
         self.delete();
         unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
                               self.string.len() as size_t); }
-        unsafe { ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void,
-                                  0u8, self.encrypted_string.len()) };
+        unsafe { ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
+                                  self.encrypted_string.len()) };
         unsafe { mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
                                self.encrypted_string.len() as size_t); }
     }
@@ -108,9 +108,9 @@ mod tests {
             test_vec.set_len(4);
             test_vec2.set_len(4);
             let str = "drop".to_string();
-            let sec_str = SecureString::new(str);
-            let enc_str_ptr = sec_str.encrypted_string.as_ptr();
-            let str_ptr = sec_str.string.as_ptr();
+            let mut sec_str = SecureString::new(str);
+            let enc_str_ptr = sec_str.encrypted_string.as_mut_ptr();
+            let str_ptr = sec_str.string.as_mut_vec().as_mut_ptr();
             drop(sec_str);
             copy(enc_str_ptr, test_vec.as_mut_ptr(), 4);
             copy(str_ptr, test_vec2.as_mut_ptr(), 4);

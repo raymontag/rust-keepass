@@ -29,10 +29,12 @@ impl Crypter {
     pub fn decrypt_database(&mut self, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
         let mut file = try!(File::open(self.path.clone())
                             .map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(SeekFrom::Start(124))
+        try!(file.seek(SeekFrom::Start(124u64))
              .map_err(|_| V1KpdbError::FileErr));
         let mut crypted_database: Vec<u8> = vec![];
-        try!(file.read_to_end(&mut crypted_database).map_err(|_| V1KpdbError::ReadErr));
+        try!(file.read_to_end(&mut crypted_database)
+             .map_err(|_| V1KpdbError::ReadErr));
+
         // Create the key and decrypt the database finally
         let masterkey = match (&mut self.password, &mut self.keyfile) {
             // Only password provided
@@ -58,10 +60,10 @@ impl Crypter {
                      .map_err(|_| V1KpdbError::DecryptErr));
 
                 // Zero out unneeded keys
-                unsafe { ptr::write_bytes(passwordkey.as_ptr() as *mut c_void,
-                                          0u8, passwordkey.len());
-                         ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void,
-                                          0u8, keyfilekey.len());
+                unsafe { ptr::write_bytes(passwordkey.as_ptr() as *mut c_void, 0u8,
+                                          passwordkey.len());
+                         ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void, 0u8,
+                                          keyfilekey.len());
                          mman::munlock(passwordkey.as_ptr() as *const c_void,
                                        passwordkey.len() as size_t);
                          mman::munlock(keyfilekey.as_ptr() as *const c_void,
@@ -113,33 +115,28 @@ impl Crypter {
         // Zero out plaintext keyfile path
         keyfile.delete();
 
-        let file_size = try!(file.seek(SeekFrom::End(0))
+        let file_size = try!(file.seek(SeekFrom::End(0i64))
                              .map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(SeekFrom::Start(0))
+        try!(file.seek(SeekFrom::Start(0u64))
              .map_err(|_| V1KpdbError::FileErr));
         
         if file_size == 32 {
             let mut key: Vec<u8> = vec![];
-            match file.read_to_end(&mut key) {
-                Ok(n) => if n != 32 {return Err(V1KpdbError::ReadErr)},
-                Err(_) => return Err(V1KpdbError::ReadErr),
-            }
+            try!(file.read_to_end(&mut key).map_err(|_| V1KpdbError::ReadErr));
             return Ok(key);
         } else if file_size == 64 {
             // interpret characters as encoded hex if possible (e.g. "FF" => 0xff)
-            let mut key = "".to_string();
+            let mut key: String = "".to_string();
             match file.read_to_string(&mut key) {
-                Ok(n) => {
-                    if n == 64 {
-                        match (&key).from_hex() {
-                            Ok(e2) => return Ok(e2),
-                            Err(_) => {},
-                        }
+                Ok(_) => {
+                    match key.as_str().from_hex() {
+                        Ok(e2) => return Ok(e2),
+                        Err(_) => {},
                     }
                 },
                 Err(_) => {},
             }
-            try!(file.seek(SeekFrom::Start(0))
+            try!(file.seek(SeekFrom::Start(0u64))
                  .map_err(|_| V1KpdbError::FileErr));
         }
 
@@ -191,8 +188,8 @@ impl Crypter {
              .map_err(|_| V1KpdbError::DecryptErr));
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::write_bytes(masterkey.as_ptr() as *mut c_void,
-                                  0u8, masterkey.len());
+        unsafe { ptr::write_bytes(masterkey.as_ptr() as *mut c_void, 0u8,
+                                  masterkey.len());
                  mman::munlock(masterkey.as_ptr() as *const c_void,
                                masterkey.len() as size_t); }
 
@@ -209,8 +206,8 @@ impl Crypter {
                                        &crypted_database);
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::write_bytes(finalkey.as_ptr() as *mut c_void,
-                                  0u8, finalkey.len());
+        unsafe { ptr::write_bytes(finalkey.as_ptr() as *mut c_void, 0u8,
+                                  finalkey.len());
                  mman::munlock(finalkey.as_ptr() as *const c_void,
                                finalkey.len() as size_t); }
 
