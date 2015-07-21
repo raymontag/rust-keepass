@@ -53,7 +53,7 @@ trait GetIndex<T> {
 impl<T: Eq> GetIndex<T> for Vec<Rc<RefCell<T>>> {
     fn get_index(&self, item: &T)
                   -> Result<usize, V1KpdbError> {
-        for index in range(0, self.len()) {
+        for index in 0..self.len() {
             if *(self[index].borrow()) == *item {
                 return Ok(index);
             }
@@ -170,6 +170,6 @@ impl V1Kpdb {
 
         self.header.num_groups += 1;
         Ok(())
-                        }
+    }
 }
 

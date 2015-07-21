@@ -18,7 +18,7 @@ fn test_new() {
     assert!(result.is_ok());
     let mut db = result.ok().unwrap();
     assert_eq!(db.load().is_ok(), true);
-    assert_eq!(db.path.as_slice(), "test/test_both.kdb");
+    assert_eq!(db.path, "test/test_both.kdb");
 
     // Test fail of load with wrong password
     result = V1Kpdb::new("test/test_password.kdb".to_string(), Some("tes".to_string()), None);
@@ -84,7 +84,7 @@ fn test_create_group_w_everything() {
     assert_eq!(new_group.image, 2);
     
     let parent = new_group.parent.as_mut().unwrap();
-    assert_eq!(parent.borrow().title.as_slice(), "12");
+    assert_eq!(parent.borrow().title, "12");
 
     assert_eq!(db.header.num_groups, num_groups_before + 1);
 }

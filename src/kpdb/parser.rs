@@ -11,6 +11,7 @@ use kpdb::v1error::V1KpdbError;
 use kpdb::v1kpdb::V1Kpdb;
 use kpdb::v1entry::V1Entry;
 use kpdb::v1group::V1Group;
+use kpdb::v1header::V1Header;
 use super::super::sec_str::SecureString;
 
 fn slice_to_u16(slice: &[u8]) -> Result<u16, V1KpdbError> {
@@ -267,8 +268,8 @@ impl Parser {
         // Sort entries to their groups
         // iter is secure as it is just obfuscated
         // pointer arithmetic to the entries vector
-        for e in db.entries.as_slice().iter() {
-            for g in db.groups.as_slice().iter() {
+        for e in db.entries.iter() {
+            for g in db.groups.iter() {
                 if e.borrow().group_id == g.borrow().id {
                     g.borrow_mut().entries.push(e.clone().downgrade());
                     e.borrow_mut().group = Some(g.clone());
@@ -278,12 +279,47 @@ impl Parser {
 
         Ok(())
     }
+
     pub fn delete_decrypted_content(&mut self) {
         // Zero out raw data as it's not needed anymore
-        unsafe { ptr::zero_memory(self.decrypted_database.as_ptr() as *mut c_void,
-                                  self.decrypted_database.len());
+        unsafe { ptr::write_bytes(self.decrypted_database.as_ptr() as *mut c_void,
+                                  0u8, self.decrypted_database.len());
                  mman::munlock(self.decrypted_database.as_ptr() as *const c_void,
                                self.decrypted_database.len() as size_t); }
+    }
+
+    pub fn parse_header(header_bytes: &[u8]) -> Result<V1Header, V1KpdbError> {
+        // A static method to parse a KeePass v1.x header
+
+        let mut final_randomseed: Vec<u8> = vec![];
+        let mut iv: Vec<u8> = vec![];
+        let mut contents_hash: Vec<u8> = vec![];
+        let mut transf_randomseed: Vec<u8> = vec![];
+
+        let signature1 = try!(slice_to_u32(&header_bytes[0..4]));
+        let signature2 = try!(slice_to_u32(&header_bytes[4..8]));
+        let enc_flag = try!(slice_to_u32(&header_bytes[8..12]));
+        let version = try!(slice_to_u32(&header_bytes[12..16]));
+        final_randomseed.push_all(&header_bytes[16..32]);
+        iv.push_all(&header_bytes[32..48]);
+        let num_groups = try!(slice_to_u32(&header_bytes[48..52]));
+        let num_entries = try!(slice_to_u32(&header_bytes[52..56]));
+        contents_hash.push_all(&header_bytes[56..88]);
+        transf_randomseed.push_all(&header_bytes[88..120]);
+        let key_transf_rounds = try!(slice_to_u32(&header_bytes[120..124]));
+
+        
+        Ok(V1Header { signature1: signature1,
+                      signature2: signature2,
+                      enc_flag: enc_flag,
+                      version: version,
+                      final_randomseed: final_randomseed,
+                      iv: iv,
+                      num_groups: num_groups,
+                      num_entries: num_entries,
+                      contents_hash: contents_hash,
+                      transf_randomseed: transf_randomseed,
+                      key_transf_rounds: key_transf_rounds })
     }
 }
    

@@ -1,7 +1,8 @@
-use std::old_io::IoResult;
-use std::old_io::fs::File;
+use std::io::Read;
+use std::fs::File;
 
-use super::v1error::V1KpdbError;
+use kpdb::parser::Parser;
+use kpdb::v1error::V1KpdbError;
 
 #[doc = "
 V1Header implements the header of a KeePass v1.x database.
@@ -53,38 +54,19 @@ impl V1Header {
         }
     }
 
-    // Used to read header. Needed to wrap IoResult
-    fn read_header_(mut file: File) -> IoResult<V1Header> {
-        let signature1 = try!(file.read_le_u32());
-        let signature2 = try!(file.read_le_u32());
-        let enc_flag = try!(file.read_le_u32());
-        let version = try!(file.read_le_u32());
-        let final_randomseed = try!(file.read_exact(16usize));
-        let iv = try!(file.read_exact(16usize));
-        let num_groups = try!(file.read_le_u32());
-        let num_entries = try!(file.read_le_u32());
-        let contents_hash = try!(file.read_exact(32usize));
-        let transf_randomseed = try!(file.read_exact(32usize));
-        let key_transf_rounds = try!(file.read_le_u32());
-
-        Ok(V1Header { signature1: signature1,
-                      signature2: signature2,
-                      enc_flag: enc_flag,
-                      version: version,
-                      final_randomseed: final_randomseed,
-                      iv: iv,
-                      num_groups: num_groups,
-                      num_entries: num_entries,
-                      contents_hash: contents_hash,
-                      transf_randomseed: transf_randomseed,
-                      key_transf_rounds: key_transf_rounds })
-    }
-
     /// Use this to read the header in. path is the filepath of the database
     pub fn read_header(&mut self, path: String) -> Result<(), V1KpdbError> {
-        // Map IoResult to Result with V1KpdbError
-        let file = try!(File::open(&Path::new(path)).map_err(|_| V1KpdbError::FileErr));
-        *self = try!(V1Header::read_header_(file).map_err(|_| V1KpdbError::ReadErr));
+        let mut file = try!(File::open(path).map_err(|_| V1KpdbError::FileErr));
+        let header_bytes: &mut [u8] = &mut [0; 124];
+        match file.read(header_bytes) {
+            Ok(n)  =>
+                if n < 124 {
+                    return Err(V1KpdbError::ReadErr);
+                },
+            Err(_) => return Err(V1KpdbError::ReadErr),
+        };
+
+        *self = try!(Parser::parse_header(header_bytes));
         
         try!(V1Header::check_signatures(self));
         try!(V1Header::check_enc_flag(self));

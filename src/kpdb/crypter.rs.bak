@@ -1,7 +1,10 @@
 use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
-use std::io::{Seek, SeekFrom, Read, Write};
-use std::fs::File;
+use std::old_path::posix::Path;
+use std::old_io::SeekStyle;
+use std::old_io::fs::File;
+use std::old_io::IoErrorKind::EndOfFile;
+use std::io::Write;
 use std::ptr;
 
 use openssl::crypto::hash::{Hasher, Type};
@@ -27,12 +30,13 @@ impl Crypter {
     }
     
     pub fn decrypt_database(&mut self, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
-        let mut file = try!(File::open(self.path.clone())
+        let mut file = try!(File::open(&Path::new(self.path.clone()))
                             .map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(SeekFrom::Start(124))
+        try!(file.seek(124i64, SeekStyle::SeekSet)
              .map_err(|_| V1KpdbError::FileErr));
-        let mut crypted_database: Vec<u8> = vec![];
-        try!(file.read_to_end(&mut crypted_database).map_err(|_| V1KpdbError::ReadErr));
+        let crypted_database = try!(file.read_to_end()
+                                    .map_err(|_| V1KpdbError::ReadErr));
+
         // Create the key and decrypt the database finally
         let masterkey = match (&mut self.password, &mut self.keyfile) {
             // Only password provided
@@ -52,16 +56,16 @@ impl Crypter {
 
                 // ...and hash them together
                 let mut hasher = Hasher::new(Type::SHA256);
-                try!(hasher.write_all(&passwordkey)
+                try!(hasher.write_all(passwordkey.as_slice())
                      .map_err(|_| V1KpdbError::DecryptErr));
-                try!(hasher.write_all(&keyfilekey)
+                try!(hasher.write_all(keyfilekey.as_slice())
                      .map_err(|_| V1KpdbError::DecryptErr));
 
                 // Zero out unneeded keys
-                unsafe { ptr::write_bytes(passwordkey.as_ptr() as *mut c_void,
-                                          0u8, passwordkey.len());
-                         ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void,
-                                          0u8, keyfilekey.len());
+                unsafe { ptr::zero_memory(passwordkey.as_ptr() as *mut c_void,
+                                          passwordkey.len());
+                         ptr::zero_memory(keyfilekey.as_ptr() as *mut c_void,
+                                          keyfilekey.len());
                          mman::munlock(passwordkey.as_ptr() as *const c_void,
                                        passwordkey.len() as size_t);
                          mman::munlock(keyfilekey.as_ptr() as *const c_void,
@@ -73,13 +77,16 @@ impl Crypter {
         };
         unsafe { mman::mlock(masterkey.as_ptr() as *const c_void,
                              masterkey.len() as size_t); }
+        
         let finalkey = try!(Crypter::transform_key(masterkey, header));
         unsafe { mman::mlock(finalkey.as_ptr() as *const c_void,
                              finalkey.len() as size_t); }
         
         let decrypted_database = Crypter::decrypt_it(finalkey, crypted_database, header);
+
         try!(Crypter::check_decryption_success(header, &decrypted_database));
         try!(Crypter::check_content_hash(header, &decrypted_database));
+
         // Prevent swapping of raw data
         unsafe { mman::mlock(decrypted_database.as_ptr() as *const c_void,
                              decrypted_database.len() as size_t); } 
@@ -107,65 +114,70 @@ impl Crypter {
     fn get_keyfilekey(keyfile: &mut SecureString) -> Result<Vec<u8>, V1KpdbError> {
         //unlock SecureString
         keyfile.unlock();
-
-        let mut file = try!(File::open(&keyfile.string)
+        // keyfile.string.as_bytes() is secure as just a reference is returned
+        let keyfile_path = keyfile.string.as_bytes();
+        
+        let mut file = try!(File::open(&Path::new(keyfile_path))
                             .map_err(|_| V1KpdbError::FileErr));
         // Zero out plaintext keyfile path
         keyfile.delete();
 
-        let file_size = try!(file.seek(SeekFrom::End(0))
-                             .map_err(|_| V1KpdbError::FileErr));
-        try!(file.seek(SeekFrom::Start(0))
+        try!(file.seek(0i64, SeekStyle::SeekEnd)
+             .map_err(|_| V1KpdbError::FileErr));
+        let file_size = try!(file.tell().map_err(|_| V1KpdbError::FileErr));
+        try!(file.seek(0i64, SeekStyle::SeekSet)
              .map_err(|_| V1KpdbError::FileErr));
         
         if file_size == 32 {
-            let mut key: Vec<u8> = vec![];
-            match file.read_to_end(&mut key) {
-                Ok(n) => if n != 32 {return Err(V1KpdbError::ReadErr)},
-                Err(_) => return Err(V1KpdbError::ReadErr),
-            }
+            let mut key: Vec<u8>;
+            key = try!(file.read_to_end().map_err(|_| V1KpdbError::ReadErr));
             return Ok(key);
         } else if file_size == 64 {
             // interpret characters as encoded hex if possible (e.g. "FF" => 0xff)
-            let mut key = "".to_string();
-            match file.read_to_string(&mut key) {
-                Ok(n) => {
-                    if n == 64 {
-                        match (&key).from_hex() {
-                            Ok(e2) => return Ok(e2),
-                            Err(_) => {},
-                        }
+            match file.read_to_string() {
+                Ok(e1) => {
+                    match e1.as_slice().from_hex() {
+                        Ok(e2) => return Ok(e2),
+                        Err(_) => {},
                     }
                 },
                 Err(_) => {},
             }
-            try!(file.seek(SeekFrom::Start(0))
+            try!(file.seek(0i64, SeekStyle::SeekSet)
                  .map_err(|_| V1KpdbError::FileErr));
         }
 
         // Read up to 2048 bytes and hash them
         let mut hasher = Hasher::new(Type::SHA256);
-        let mut buf: Vec<u8>;
-        
-        loop {
-            buf = vec![0; 2048];
-            match file.read(&mut buf[..]) {
-                Ok(n) =>
-                {
-                    if n == 0 {break};
-                    buf.truncate(n);
-                    try!(hasher.write_all(buf.as_slice())
-                         .map_err(|_| V1KpdbError::DecryptErr));
-                    unsafe { ptr::write_bytes(buf.as_ptr() as *mut c_void,
-                                              0u8, buf.len()) };
 
-                },
-                Err(_) => {
-                    return Err(V1KpdbError::ReadErr);
+        loop {
+            let mut read_bytes = 0;
+            let mut buf: Vec<u8> = vec![];
+
+            // We use this construct instead of file.read()
+            // to handle EndOfFile _and_ get the number
+            // of read bytes
+            for _ in (0..2048) {
+                match file.read_byte() {
+                    Ok(o) => buf.push(o),
+                    Err(e) => {
+                        if e.kind == EndOfFile {
+                            break;
+                        } else {
+                            return Err(V1KpdbError::ReadErr);
+                        }
+                    }
                 }
+                read_bytes += 1;
+            }
+            println!("{} {} {}", buf[0], buf[5], buf[10]);
+            try!(hasher.write_all(buf.as_slice())
+                 .map_err(|_| V1KpdbError::DecryptErr));
+            if read_bytes < 2048 {
+                break;
             }
         }
-        
+
         let key = hasher.finish();
         Ok(key)
     }
@@ -175,24 +187,24 @@ impl Crypter {
     fn transform_key(mut masterkey: Vec<u8>, header: &V1Header) -> Result<Vec<u8>, V1KpdbError> {
         let crypter = symm::Crypter::new(symm::Type::AES_256_ECB);
         crypter.init(symm::Mode::Encrypt,
-                     &header.transf_randomseed, vec![]);
+                     header.transf_randomseed.as_slice(), vec![]);
         for _ in (0..header.key_transf_rounds) {
-            masterkey = crypter.update(&masterkey);
+            masterkey = crypter.update(masterkey.as_slice());
         }
         let mut hasher = Hasher::new(Type::SHA256);
-        try!(hasher.write_all(&masterkey)
+        try!(hasher.write_all(masterkey.as_slice())
              .map_err(|_| V1KpdbError::DecryptErr));
         masterkey = hasher.finish();
 
         let mut hasher = Hasher::new(Type::SHA256);
-        try!(hasher.write_all(&header.final_randomseed)
+        try!(hasher.write_all(header.final_randomseed.as_slice())
              .map_err(|_| V1KpdbError::DecryptErr));
-        try!(hasher.write_all(&masterkey)
+        try!(hasher.write_all(masterkey.as_slice())
              .map_err(|_| V1KpdbError::DecryptErr));
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::write_bytes(masterkey.as_ptr() as *mut c_void,
-                                  0u8, masterkey.len());
+        unsafe { ptr::zero_memory(masterkey.as_ptr() as *mut c_void,
+                                  masterkey.len());
                  mman::munlock(masterkey.as_ptr() as *const c_void,
                                masterkey.len() as size_t); }
 
@@ -204,13 +216,13 @@ impl Crypter {
                   crypted_database: Vec<u8>,
                   header: &V1Header) -> Vec<u8> {
         let mut db_tmp = symm::decrypt(symm::Type::AES_256_CBC,
-                                       &finalkey,
+                                       finalkey.as_slice(),
                                        header.iv.clone(), 
-                                       &crypted_database);
+                                       crypted_database.as_slice());
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::write_bytes(finalkey.as_ptr() as *mut c_void,
-                                  0u8, finalkey.len());
+        unsafe { ptr::zero_memory(finalkey.as_ptr() as *mut c_void,
+                                  finalkey.len());
                  mman::munlock(finalkey.as_ptr() as *const c_void,
                                finalkey.len() as size_t); }
 
@@ -237,7 +249,7 @@ impl Crypter {
     fn check_content_hash(header: &V1Header,
                           decrypted_content: &Vec<u8>) -> Result<(), V1KpdbError> {
         let mut hasher = Hasher::new(Type::SHA256);
-        try!(hasher.write_all(&decrypted_content)
+        try!(hasher.write_all(decrypted_content.as_slice())
              .map_err(|_| V1KpdbError::DecryptErr));
         if hasher.finish() != header.contents_hash {
             return Err(V1KpdbError::HashErr);

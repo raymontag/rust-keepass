@@ -36,12 +36,12 @@ fn test_parse_groups () {
     }
 
     assert_eq!(groups[0].borrow().id, 1);
-    assert_eq!(groups[0].borrow().title.as_slice(), "Internet");
+    assert_eq!(groups[0].borrow().title, "Internet");
     assert_eq!(groups[0].borrow().image, 1);
     assert_eq!(groups[0].borrow().level, 0);
 
     assert_eq!(groups[1].borrow().id, 2);
-    assert_eq!(groups[1].borrow().title.as_slice(), "test");
+    assert_eq!(groups[1].borrow().title, "test");
     assert_eq!(groups[1].borrow().image, 1);
     assert_eq!(groups[1].borrow().level, 0);
     assert_eq!(groups[1].borrow().creation.year(), 2014);
@@ -72,10 +72,10 @@ fn test_parse_entries () {
     entries[0].borrow_mut().password.unlock();
 
     assert_eq!(entries[0].borrow().uuid, uuid);
-    assert_eq!(entries[0].borrow().title.as_slice(), "foo");
-    assert_eq!(entries[0].borrow().url.as_slice(), "foo");
-    assert_eq!(entries[0].borrow().username.as_slice(), "foo");
-    assert_eq!(entries[0].borrow().password.string.as_slice(), "DLE\"H<JZ|E");
+    assert_eq!(entries[0].borrow().title, "foo");
+    assert_eq!(entries[0].borrow().url, "foo");
+    assert_eq!(entries[0].borrow().username, "foo");
+    assert_eq!(entries[0].borrow().password.string, "DLE\"H<JZ|E");
     assert_eq!(entries[0].borrow().image, 1);
     assert_eq!(entries[0].borrow().group_id, 1);
     assert_eq!(entries[0].borrow().creation.year(), 2014);
@@ -108,16 +108,16 @@ fn test_create_group_tree() {
                              Some("test".to_string()), None).ok().unwrap();
     assert_eq!(db.load().is_ok(), true);
 
-    assert_eq!(get_parent_title(1, &db).as_slice(), "Internet");
-    assert_eq!(get_parent_title(2, &db).as_slice(), "Internet");
-    assert_eq!(get_children_title(2, 0, &db).as_slice(), "22");
-    assert_eq!(get_children_title(2, 1, &db).as_slice(), "21");
-    assert_eq!(get_parent_title(3, &db).as_slice(), "11");
-    assert_eq!(get_parent_title(4, &db).as_slice(), "11");
-    assert_eq!(get_children_title(4, 0, &db).as_slice(), "32");
-    assert_eq!(get_children_title(4, 1, &db).as_slice(), "31");
-    assert_eq!(get_parent_title(5, &db).as_slice(), "21");
-    assert_eq!(get_parent_title(6, &db).as_slice(), "21");
+    assert_eq!(get_parent_title(1, &db), "Internet");
+    assert_eq!(get_parent_title(2, &db), "Internet");
+    assert_eq!(get_children_title(2, 0, &db), "22");
+    assert_eq!(get_children_title(2, 1, &db), "21");
+    assert_eq!(get_parent_title(3, &db), "11");
+    assert_eq!(get_parent_title(4, &db), "11");
+    assert_eq!(get_children_title(4, 0, &db), "32");
+    assert_eq!(get_children_title(4, 1, &db), "31");
+    assert_eq!(get_parent_title(5, &db), "21");
+    assert_eq!(get_parent_title(6, &db), "21");
 
     assert_eq!(get_entry_parent_title(0, &db), "Internet");
     assert_eq!(get_entry_parent_title(1, &db), "11");

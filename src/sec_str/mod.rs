@@ -59,13 +59,13 @@ impl SecureString {
         // We couldn't find documentation if overwriting a string with a string of the
         // same length will leave the original string or really manipulating the original
         // one.
-        unsafe { ptr::zero_memory(self.string.as_ptr() as *mut c_void,
-                                  self.string.len()) };
+        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void,
+                                  0u8, self.string.len()) };
     }
     
     fn lock(&mut self) {
         self.encrypted_string = symm::encrypt(symm::Type::AES_256_CBC,
-                                              self.password.as_slice(),
+                                              &self.password,
                                               self.iv.clone(),
                                               self.string.as_bytes());
     }
@@ -74,9 +74,9 @@ impl SecureString {
     /// Don't forget to call delete() if you don't need the plain text anymore.
     pub fn unlock(&mut self) {
         self.string = String::from_utf8(symm::decrypt(symm::Type::AES_256_CBC,
-                                                      self.password.as_slice(),
+                                                      &self.password,
                                                       self.iv.clone(),
-                                                      self.encrypted_string.as_slice())
+                                                      &self.encrypted_string)
                                         ).unwrap();
     }
 }
@@ -87,8 +87,8 @@ impl Drop for SecureString {
         self.delete();
         unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
                               self.string.len() as size_t); }
-        unsafe { ptr::zero_memory(self.encrypted_string.as_ptr() as *mut c_void,
-                                  self.encrypted_string.len()) };
+        unsafe { ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void,
+                                  0u8, self.encrypted_string.len()) };
         unsafe { mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
                                self.encrypted_string.len() as size_t); }
     }
@@ -98,7 +98,7 @@ impl Drop for SecureString {
 mod tests {
     use super::SecureString;
     use std::str;
-    use std::ptr::copy_memory;
+    use std::ptr::copy;
 
     #[test]
     fn test_drop() {
@@ -112,8 +112,8 @@ mod tests {
             let enc_str_ptr = sec_str.encrypted_string.as_ptr();
             let str_ptr = sec_str.string.as_ptr();
             drop(sec_str);
-            copy_memory(test_vec.as_mut_ptr(), enc_str_ptr, 4);
-            copy_memory(test_vec2.as_mut_ptr(), str_ptr, 4);
+            copy(enc_str_ptr, test_vec.as_mut_ptr(), 4);
+            copy(str_ptr, test_vec2.as_mut_ptr(), 4);
         }
         assert_eq!(test_vec,  vec![0u8, 0u8, 0u8, 0u8]);
         assert_eq!(test_vec2, vec![0u8, 0u8, 0u8, 0u8]);
@@ -124,19 +124,19 @@ mod tests {
         // Ownership of str moves to SecureString <- secure input interface
         let mut sec_str = SecureString::new(str);
         sec_str.unlock();
-        assert_eq!(sec_str.string.as_slice(), "Hello, box!");
+        assert_eq!(sec_str.string, "Hello, box!");
     }
 
     #[test]
     fn test_delete() {
         let str = "delete".to_string();
         let sec_str = SecureString::new(str);
-        assert_eq!(sec_str.string.as_slice(), "\0\0\0\0\0\0");
+        assert_eq!(sec_str.string, "\0\0\0\0\0\0");
         
         // Test with umlauts
         let str = "ä".to_string();
         let sec_str = SecureString::new(str);
-        assert_eq!(sec_str.string.as_slice(), "\0\0");        
+        assert_eq!(sec_str.string, "\0\0");        
     }
 
     #[test]
@@ -144,10 +144,10 @@ mod tests {
         let str = "delete".to_string();
         let mut sec_str = SecureString::new(str);
 
-        assert!(str::from_utf8(sec_str.encrypted_string.as_slice()) !=  Ok("delete"));
+        assert!(str::from_utf8(&sec_str.encrypted_string) !=  Ok("delete"));
 
         sec_str.unlock();
-        assert_eq!(sec_str.string.as_slice(), "delete");
+        assert_eq!(sec_str.string, "delete");
     }
 
     #[test]
