@@ -20,5 +20,6 @@ git = "https://github.com/sfackler/rust-openssl.git"
 [dependencies]
 
 rustc-serialize = "0.3"
+libc = "0.1.10"
 rand = "0.3"
 chrono = "0.2"
