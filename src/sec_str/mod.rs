@@ -52,7 +52,7 @@ impl SecureString {
     }
 
     /// Overwrite the string with zeroes. Call this everytime after unlock() if you don't
-    /// ned the string anymore.
+    /// need the string anymore.
     pub fn delete(&self) {
         // Use write_bytes instead of just overwriting the string with string = ... to
         // make sure that no copy of the string exists in memory
