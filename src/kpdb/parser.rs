@@ -281,12 +281,12 @@ impl Parser {
         let signature2 = try!(slice_to_u32(&header_bytes[4..8]));
         let enc_flag = try!(slice_to_u32(&header_bytes[8..12]));
         let version = try!(slice_to_u32(&header_bytes[12..16]));
-        final_randomseed.push_all(&header_bytes[16..32]);
-        iv.push_all(&header_bytes[32..48]);
+        final_randomseed.extend(&header_bytes[16..32]);
+        iv.extend(&header_bytes[32..48]);
         let num_groups = try!(slice_to_u32(&header_bytes[48..52]));
         let num_entries = try!(slice_to_u32(&header_bytes[52..56]));
-        contents_hash.push_all(&header_bytes[56..88]);
-        transf_randomseed.push_all(&header_bytes[88..120]);
+        contents_hash.extend(&header_bytes[56..88]);
+        transf_randomseed.extend(&header_bytes[88..120]);
         let key_transf_rounds = try!(slice_to_u32(&header_bytes[120..124]));
 
 

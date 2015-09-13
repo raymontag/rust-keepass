@@ -1,7 +1,7 @@
 #![crate_name="keepass"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
-#![feature(libc, rc_weak, vec_resize, vec_push_all, convert)]
+#![feature(rc_weak, vec_resize, convert)]
 
 extern crate libc;
 extern crate openssl;
