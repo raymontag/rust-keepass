@@ -44,7 +44,7 @@ pub struct V1Kpdb {
     pub root_group: Rc<RefCell<V1Group>>,
     // Used to de- and encrypt the database
     crypter: Crypter,
-} 
+}
 
 trait GetIndex<T> {
     fn get_index(&self, item: &T) -> Result<usize, V1KpdbError>;
@@ -111,7 +111,7 @@ impl V1Kpdb {
         self.entries = try!(parser.parse_entries());
 
         parser.delete_decrypted_content();
-                
+
         // Now create the group tree and sort the entries to their groups
         try!(Parser::create_group_tree(self, levels));
         Ok(())
@@ -134,7 +134,7 @@ impl V1Kpdb {
                         expire: Option<DateTime<Local>>,
                         image: Option<u32>,
                         parent: Option<Rc<RefCell<V1Group>>>)
-                        -> Result<(), V1KpdbError> {        
+                        -> Result<(), V1KpdbError> {
         let mut new_id: u32 = 1;
         for group in self.groups.iter() {
             let id = group.borrow().id;
@@ -157,14 +157,14 @@ impl V1Kpdb {
             Some(s) => { let index = try!(self.groups.get_index(&*s.borrow()));
                          new_group.borrow_mut().parent = Some(s.clone());
                          s.borrow_mut().children.push(
-                             new_group.clone().downgrade());
+                             Rc::downgrade(&new_group.clone()));
                          self.groups.insert(index + 1, new_group);
-                         
+
             },
             None =>    { new_group.borrow_mut().parent = Some(self.root_group
                                                             .clone());
                          self.root_group.borrow_mut().children.push(
-                             new_group.clone().downgrade());
+                             Rc::downgrade(&new_group.clone()));
                          self.groups.push(new_group); },
         }
 
