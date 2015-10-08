@@ -2,7 +2,7 @@ use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use std::io::{Seek, SeekFrom, Read, Write};
 use std::fs::File;
-use std::ptr;
+use std::intrinsics;
 
 use openssl::crypto::hash::{Hasher, Type};
 use openssl::crypto::symm;
@@ -60,10 +60,10 @@ impl Crypter {
                      .map_err(|_| V1KpdbError::DecryptErr));
 
                 // Zero out unneeded keys
-                unsafe { ptr::write_bytes(passwordkey.as_ptr() as *mut c_void, 0u8,
-                                          passwordkey.len());
-                         ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void, 0u8,
-                                          keyfilekey.len());
+                unsafe { intrinsics::volatile_set_memory(passwordkey.as_ptr() as *mut c_void, 0u8,
+                                                         passwordkey.len());
+                         intrinsics::volatile_set_memory(keyfilekey.as_ptr() as *mut c_void, 0u8,
+                                                         keyfilekey.len());
                          mman::munlock(passwordkey.as_ptr() as *const c_void,
                                        passwordkey.len() as size_t);
                          mman::munlock(keyfilekey.as_ptr() as *const c_void,
@@ -153,8 +153,8 @@ impl Crypter {
                     buf.truncate(n);
                     try!(hasher.write_all(buf.as_slice())
                          .map_err(|_| V1KpdbError::DecryptErr));
-                    unsafe { ptr::write_bytes(buf.as_ptr() as *mut c_void,
-                                              0u8, buf.len()) };
+                    unsafe { intrinsics::volatile_set_memory(buf.as_ptr() as *mut c_void,
+                                                             0u8, buf.len()) };
 
                 },
                 Err(_) => {
@@ -188,8 +188,8 @@ impl Crypter {
              .map_err(|_| V1KpdbError::DecryptErr));
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::write_bytes(masterkey.as_ptr() as *mut c_void, 0u8,
-                                  masterkey.len());
+        unsafe { intrinsics::volatile_set_memory(masterkey.as_ptr() as *mut c_void, 0u8,
+                                                 masterkey.len());
                  mman::munlock(masterkey.as_ptr() as *const c_void,
                                masterkey.len() as size_t); }
 
@@ -206,8 +206,8 @@ impl Crypter {
                                        &crypted_database);
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::write_bytes(finalkey.as_ptr() as *mut c_void, 0u8,
-                                  finalkey.len());
+        unsafe { intrinsics::volatile_set_memory(finalkey.as_ptr() as *mut c_void, 0u8,
+                                                 finalkey.len());
                  mman::munlock(finalkey.as_ptr() as *const c_void,
                                finalkey.len() as size_t); }
 

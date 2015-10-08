@@ -2,7 +2,7 @@ use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use openssl::crypto::symm;
 use rand;
-use std::ptr;
+use std::intrinsics;
 
 #[doc = "
 SecureString implements a secure string. This means in particular:
@@ -54,13 +54,9 @@ impl SecureString {
     /// Overwrite the string with zeroes. Call this everytime after unlock() if you don't
     /// need the string anymore.
     pub fn delete(&self) {
-        // Use write_bytes instead of just overwriting the string with string = ... to
-        // make sure that no copy of the string exists in memory
-        // We couldn't find documentation if overwriting a string with a string of the
-        // same length will leave the original string or really manipulating the original
-        // one.
-        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void, 0u8,
-                                  self.string.len()) };
+        // Use volatile_set_memory to make sure that the operation is executed.
+        unsafe { intrinsics::volatile_set_memory(self.string.as_ptr() as *mut c_void, 0u8,
+                                                 self.string.len()) };
     }
     
     fn lock(&mut self) {
@@ -86,10 +82,10 @@ impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
         unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
-                              self.string.len() as size_t); }
-        unsafe { ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
-                                  self.encrypted_string.len()) };
-        unsafe { mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
+                               self.string.len() as size_t);
+                 intrinsics::volatile_set_memory(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
+                                                 self.encrypted_string.len());
+                 mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
                                self.encrypted_string.len() as size_t); }
     }
 }
