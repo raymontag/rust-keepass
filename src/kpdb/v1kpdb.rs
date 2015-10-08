@@ -2,6 +2,7 @@ use std::cell::{RefCell};
 use std::rc::Rc;
 
 use chrono::{DateTime, Local};
+use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
@@ -130,6 +131,7 @@ impl V1Kpdb {
     ///
     /// * parent: a group inside the groups vector which should be the parent in
     ///           the group tree. None means that the root group is the parent
+    /// TODO: Not all fields are filled
     pub fn create_group(&mut self, title: String,
                         expire: Option<DateTime<Local>>,
                         image: Option<u32>,

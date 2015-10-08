@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::str;
 
 use chrono::{DateTime, Local, TimeZone};
+use uuid::Uuid;
 
 use kpdb::common::{slice_to_u16, slice_to_u32};
 use kpdb::v1error::V1KpdbError;
@@ -160,8 +161,7 @@ impl Parser {
         };
 
         match field_type {
-            0x0001 => entry.uuid = (0..field_size as usize)
-                .map(|i| db_slice[i]).collect(),
+            0x0001 => entry.uuid = Uuid::from_bytes(db_slice).unwrap(),
             0x0002 => entry.group_id = try!(slice_to_u32(db_slice)),
             0x0003 => entry.image = try!(slice_to_u32(db_slice)),
             0x0004 => entry.title = str::from_utf8(db_slice)

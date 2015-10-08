@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_imports)]
 
 use chrono::Datelike;
+use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
@@ -51,8 +52,8 @@ fn test_parse_groups () {
 
 #[test]
 fn test_parse_entries () {
-    let uuid: Vec<u8> = vec![0x0c, 0x31, 0xac, 0x94, 0x23, 0x47, 0x66, 0x36, 
-                             0xb8, 0xc0, 0x42, 0x81, 0x5e, 0x5a, 0x14, 0x60];
+    let uuid = Uuid::from_bytes(&[0x0c, 0x31, 0xac, 0x94, 0x23, 0x47, 0x66, 0x36, 
+                                  0xb8, 0xc0, 0x42, 0x81, 0x5e, 0x5a, 0x14, 0x60]).unwrap();
 
     let mut parser = setup("test/test_password.kdb".to_string(),
                            Some(SecureString::new("test".to_string())),

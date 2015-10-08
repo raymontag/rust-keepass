@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use chrono::{DateTime, Local, TimeZone};
+use uuid::Uuid;
 
 use super::v1group::V1Group;
 use super::super::sec_str::SecureString;
@@ -11,7 +12,7 @@ Implements an entry in a KeePass v1.x database.
 "]
 pub struct V1Entry {
     /// UUID of the entry
-    pub uuid: Vec<u8>,
+    pub uuid: Uuid,
     /// ID of the group holding the entry
     pub group_id: u32,
     /// Reference to the group holding the entry
@@ -47,7 +48,7 @@ impl V1Entry {
     /// Normally you want to use the API
     /// of V1Kpdb to do this
     pub fn new() -> V1Entry {
-        V1Entry { uuid: vec![],
+        V1Entry { uuid: Uuid::new_v4(),
                   group_id: 0,
                   group: None,
                   image: 0,
