@@ -52,7 +52,7 @@ impl V1Group {
                   flags:       0,
                   parent:      None,
                   children:    vec![],
-                  entries: vec![],
+                  entries:     vec![],
                   //db: box None,
         }
     }

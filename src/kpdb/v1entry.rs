@@ -22,17 +22,17 @@ pub struct V1Entry {
     /// Title of the entry
     pub title: String,
     /// URL for the login
-    pub url: String,
+    pub url: Option<String>,
     /// Username for the login
-    pub username: String,
+    pub username: Option<SecureString>,
     /// Password for the login
-    pub password: SecureString,
+    pub password: Option<SecureString>,
     /// Some comment about the entry
-    pub comment: String,
+    pub comment: Option<String>,
     /// Descripton of the binary content
-    pub binary_desc: String,
+    pub binary_desc: Option<String>,
     /// ???
-    pub binary: Vec<u8>,
+    pub binary: Option<Vec<u8>>,
     /// Date of creation
     pub creation: DateTime<Local>,
     /// Date of last modification
@@ -53,12 +53,12 @@ impl V1Entry {
                   group: None,
                   image: 0,
                   title: "".to_string(),
-                  url: "".to_string(),
-                  username: "".to_string(),
-                  password: SecureString::new("".to_string()),
-                  comment: "".to_string(),
-                  binary_desc: "".to_string(),
-                  binary: vec![],
+                  url: None,
+                  username: None,
+                  password: None,
+                  comment: None,
+                  binary_desc: None,
+                  binary: None,
                   creation: Local::now(),
                   last_mod: Local::now(),
                   last_access: Local::now(),

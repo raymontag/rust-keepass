@@ -166,22 +166,21 @@ impl Parser {
             0x0003 => entry.image = try!(slice_to_u32(db_slice)),
             0x0004 => entry.title = str::from_utf8(db_slice)
                 .unwrap_or("").to_string(),
-            0x0005 => entry.url = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
-            0x0006 => entry.username = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
-            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice)
-                                                         .unwrap().to_string()),
-            0x0008 => entry.comment = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
+            0x0005 => entry.url = Some(str::from_utf8(db_slice)
+                .unwrap_or("").to_string()),
+            0x0006 => entry.username = Some(SecureString::new(str::from_utf8(db_slice)
+                                                              .unwrap().to_string())),
+            0x0007 => entry.password = Some(SecureString::new(str::from_utf8(db_slice)
+                                                              .unwrap().to_string())),
+            0x0008 => entry.comment = Some(str::from_utf8(db_slice).unwrap_or("").to_string()),
             0x0009 => entry.creation = Parser::get_date(db_slice),
             0x000A => entry.last_mod = Parser::get_date(db_slice),
             0x000B => entry.last_access = Parser::get_date(db_slice),
             0x000C => entry.expire = Parser::get_date(db_slice),
-            0x000D => entry.binary_desc = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
-            0x000E => entry.binary = (0..field_size as usize)
-                .map(|i| db_slice[i]).collect(),
+            0x000D => entry.binary_desc = Some(str::from_utf8(db_slice)
+                                               .unwrap_or("").to_string()),
+            0x000E => entry.binary = Some((0..field_size as usize)
+                                          .map(|i| db_slice[i]).collect()),
             _ => (),
         }
 

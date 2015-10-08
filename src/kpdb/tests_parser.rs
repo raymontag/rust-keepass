@@ -70,13 +70,14 @@ fn test_parse_entries () {
         Err(_) => assert!(false),
     }
 
-    entries[0].borrow_mut().password.unlock();
-
+    entries[0].borrow_mut().username.as_mut().unwrap().unlock();
+    entries[0].borrow_mut().password.as_mut().unwrap().unlock();
+    
     assert_eq!(entries[0].borrow().uuid, uuid);
     assert_eq!(entries[0].borrow().title, "foo");
-    assert_eq!(entries[0].borrow().url, "foo");
-    assert_eq!(entries[0].borrow().username, "foo");
-    assert_eq!(entries[0].borrow().password.string, "DLE\"H<JZ|E");
+    assert_eq!(entries[0].borrow().url, Some("foo".to_string()));
+    assert_eq!(entries[0].borrow().username.as_ref().unwrap().string, "foo");
+    assert_eq!(entries[0].borrow().password.as_ref().unwrap().string, "DLE\"H<JZ|E");
     assert_eq!(entries[0].borrow().image, 1);
     assert_eq!(entries[0].borrow().group_id, 1);
     assert_eq!(entries[0].borrow().creation.year(), 2014);

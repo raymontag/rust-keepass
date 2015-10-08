@@ -2,7 +2,6 @@ use std::cell::{RefCell};
 use std::rc::Rc;
 
 use chrono::{DateTime, Local};
-use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
@@ -131,12 +130,12 @@ impl V1Kpdb {
     ///
     /// * parent: a group inside the groups vector which should be the parent in
     ///           the group tree. None means that the root group is the parent
-    /// TODO: Not all fields are filled
     pub fn create_group(&mut self, title: String,
                         expire: Option<DateTime<Local>>,
                         image: Option<u32>,
                         parent: Option<Rc<RefCell<V1Group>>>)
-                        -> Result<(), V1KpdbError> {
+                        -> Result<(), V1KpdbError>
+    {
         let mut new_id: u32 = 1;
         for group in self.groups.iter() {
             let id = group.borrow().id;
@@ -146,7 +145,11 @@ impl V1Kpdb {
         }
 
         let new_group = Rc::new(RefCell::new(V1Group::new()));
+        new_group.borrow_mut().id = new_id;
         new_group.borrow_mut().title = title;
+        new_group.borrow_mut().creation = Local::now();
+        new_group.borrow_mut().last_mod = Local::now();
+        new_group.borrow_mut().last_access = Local::now();
         match expire {
             Some(s) => { new_group.borrow_mut().expire = s },
             None => {}, // is 12-28-2999 23:59:59 through V1Group::new
@@ -172,6 +175,75 @@ impl V1Kpdb {
 
         self.header.num_groups += 1;
         Ok(())
+    }
+
+    /// Create a new group
+    ///
+    /// * group: group which should hold the entry
+    ///
+    /// * title: title of the new entry
+    ///
+    /// * expire: expiration date of the group
+    ///           None means that the group expires never which itself
+    ///           corresponds to the date 28-12-2999 23:59:59
+    ///
+    /// * image: an image number, used in KeePass and KeePassX for the group
+    ///          icon. None means 0
+    ///
+    /// * url: URL from where the credentials are
+    ///
+    /// * comment: some free-text-comment about the entry
+    ///
+    /// * username: username for the URL
+    ///
+    /// * password: password for the URL
+    ///
+    /// Note: username and password should be of type String at creation. If you have a
+    /// &str which you convert into a String with to_string() the plaintext will remain
+    /// in memory as the new created String is a copy of the original &str. If you use
+    /// String this function call is a move so that the String remains where it was
+    /// created.
+    ///       
+    pub fn create_entry(&mut self,
+                        group: Rc<RefCell<V1Group>>,
+                        title: String,
+                        expire: Option<DateTime<Local>>,
+                        image: Option<u32>,
+                        url: Option<String>,
+                        comment: Option<String>,
+                        username: Option<String>,
+                        password: Option<String>)
+    {
+        // Automatically creates a UUID for the entry
+        let new_entry = Rc::new(RefCell::new(V1Entry::new()));
+        new_entry.borrow_mut().title = title;
+        new_entry.borrow_mut().group = Some(group.clone());
+        group.borrow_mut().entries.push(Rc::downgrade(&new_entry.clone()));
+        new_entry.borrow_mut().group_id = group.borrow().id;
+        new_entry.borrow_mut().creation = Local::now();
+        new_entry.borrow_mut().last_mod = Local::now();
+        new_entry.borrow_mut().last_access = Local::now();
+        match expire {
+            Some(s) => { new_entry.borrow_mut().expire = s },
+            None    => {}, // is 12-28-2999 23:59:59 through V1Entry::new()
+        };
+        match image {
+            Some(s) => { new_entry.borrow_mut().image = s },
+            None    => {}, // is 0 through V1Entry::new()
+        }
+        new_entry.borrow_mut().url = url;
+        new_entry.borrow_mut().comment = comment;
+        match username {
+            Some(s) => { new_entry.borrow_mut().username = Some(SecureString::new(s)) },
+            None    => {},
+        };
+        match password {
+            Some(s) => { new_entry.borrow_mut().password = Some(SecureString::new(s)) },
+            None    => {},
+        };
+        
+        self.entries.push(new_entry);
+        self.header.num_entries += 1;
     }
 }
 
