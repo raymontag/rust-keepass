@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::str;
 
 use chrono::{DateTime, Local, TimeZone};
+use uuid::Uuid;
 
 use kpdb::common::{slice_to_u16, slice_to_u32};
 use kpdb::v1error::V1KpdbError;
@@ -56,7 +57,7 @@ impl Parser {
 
             let _ = self.read_group_field(cur_group.borrow_mut(),
                                           field_type, field_size);
-                                     
+
             if field_type == 0x0008 {
                 levels.push(cur_group.borrow().level);
             } else if field_type == 0xFFFF {
@@ -74,7 +75,7 @@ impl Parser {
                 return Err(V1KpdbError::OffsetErr);
             }
         }
-        
+
         Ok((groups, levels))
     }
 
@@ -83,7 +84,7 @@ impl Parser {
         let mut entry_number: u32 = 0;
         let mut cur_entry = Rc::new(RefCell::new(V1Entry::new()));
         let mut entries: Vec<Rc<RefCell<V1Entry>>> = vec![];
-        
+
         let mut field_type: u16;
         let mut field_size: u32;
 
@@ -160,28 +161,26 @@ impl Parser {
         };
 
         match field_type {
-            0x0001 => entry.uuid = (0..field_size as usize)
-                .map(|i| db_slice[i]).collect(),
+            0x0001 => entry.uuid = Uuid::from_bytes(db_slice).unwrap(),
             0x0002 => entry.group_id = try!(slice_to_u32(db_slice)),
             0x0003 => entry.image = try!(slice_to_u32(db_slice)),
             0x0004 => entry.title = str::from_utf8(db_slice)
                 .unwrap_or("").to_string(),
-            0x0005 => entry.url = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
-            0x0006 => entry.username = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
-            0x0007 => entry.password = SecureString::new(str::from_utf8(db_slice)
-                                                         .unwrap().to_string()),
-            0x0008 => entry.comment = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
+            0x0005 => entry.url = Some(str::from_utf8(db_slice)
+                .unwrap_or("").to_string()),
+            0x0006 => entry.username = Some(SecureString::new(str::from_utf8(db_slice)
+                                                              .unwrap().to_string())),
+            0x0007 => entry.password = Some(SecureString::new(str::from_utf8(db_slice)
+                                                              .unwrap().to_string())),
+            0x0008 => entry.comment = Some(str::from_utf8(db_slice).unwrap_or("").to_string()),
             0x0009 => entry.creation = Parser::get_date(db_slice),
             0x000A => entry.last_mod = Parser::get_date(db_slice),
             0x000B => entry.last_access = Parser::get_date(db_slice),
             0x000C => entry.expire = Parser::get_date(db_slice),
-            0x000D => entry.binary_desc = str::from_utf8(db_slice)
-                .unwrap_or("").to_string(),
-            0x000E => entry.binary = (0..field_size as usize)
-                .map(|i| db_slice[i]).collect(),
+            0x000D => entry.binary_desc = Some(str::from_utf8(db_slice)
+                                               .unwrap_or("").to_string()),
+            0x000E => entry.binary = Some((0..field_size as usize)
+                                          .map(|i| db_slice[i]).collect()),
             _ => (),
         }
 
@@ -212,14 +211,14 @@ impl Parser {
         if levels[0] != 0 {
             return Err(V1KpdbError::TreeErr);
         }
-        
+
         for i in (0..db.groups.len()) {
             // level 0 means that the group is not a sub group. Hence add it as a children
             // of the root
             if levels[i] == 0 {
                 db.groups[i].borrow_mut().parent = Some(db.root_group.clone());
                 db.root_group.borrow_mut()
-                    .children.push(db.groups[i].clone().downgrade());
+                    .children.push(Rc::downgrade(&(db.groups[i].clone())));
                 continue;
             }
 
@@ -233,7 +232,7 @@ impl Parser {
                     }
                     db.groups[i].borrow_mut().parent = Some(db.groups[j].clone());
                     db.groups[j].borrow_mut()
-                        .children.push(db.groups[i].clone().downgrade());
+                        .children.push(Rc::downgrade(&(db.groups[i].clone())));
                     break;
                 }
                 // It's not possible that a group which comes after another
@@ -252,7 +251,7 @@ impl Parser {
         for e in db.entries.iter() {
             for g in db.groups.iter() {
                 if e.borrow().group_id == g.borrow().id {
-                    g.borrow_mut().entries.push(e.clone().downgrade());
+                    g.borrow_mut().entries.push(Rc::downgrade(&e.clone()));
                     e.borrow_mut().group = Some(g.clone());
                 }
             }
@@ -281,15 +280,15 @@ impl Parser {
         let signature2 = try!(slice_to_u32(&header_bytes[4..8]));
         let enc_flag = try!(slice_to_u32(&header_bytes[8..12]));
         let version = try!(slice_to_u32(&header_bytes[12..16]));
-        final_randomseed.push_all(&header_bytes[16..32]);
-        iv.push_all(&header_bytes[32..48]);
+        final_randomseed.extend(&header_bytes[16..32]);
+        iv.extend(&header_bytes[32..48]);
         let num_groups = try!(slice_to_u32(&header_bytes[48..52]));
         let num_entries = try!(slice_to_u32(&header_bytes[52..56]));
-        contents_hash.push_all(&header_bytes[56..88]);
-        transf_randomseed.push_all(&header_bytes[88..120]);
+        contents_hash.extend(&header_bytes[56..88]);
+        transf_randomseed.extend(&header_bytes[88..120]);
         let key_transf_rounds = try!(slice_to_u32(&header_bytes[120..124]));
 
-        
+
         Ok(V1Header { signature1: signature1,
                       signature2: signature2,
                       enc_flag: enc_flag,
@@ -303,7 +302,7 @@ impl Parser {
                       key_transf_rounds: key_transf_rounds })
     }
 }
-   
+
 impl Drop for Parser {
     fn drop(&mut self) {
         self.delete_decrypted_content();

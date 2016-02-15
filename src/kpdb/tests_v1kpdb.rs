@@ -88,3 +88,38 @@ fn test_create_group_w_everything() {
 
     assert_eq!(db.header.num_groups, num_groups_before + 1);
 }
+
+#[test]
+fn test_create_entry()
+{
+    let mut result = V1Kpdb::new("test/test_password.kdb".to_string(),
+                                 Some("test".to_string()), None);
+    match result {
+        Ok(ref mut e)  => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    let num_entries_before = db.header.num_entries;
+    let group = db.groups[0].clone();
+    let expire = Local.ymd(2015, 2, 28).and_hms(10,10,10);
+    db.create_entry(group, "test".to_string(), Some(expire),
+                    Some(5), Some("http://foo".to_string()), Some("foo".to_string()),
+                    Some("bar".to_string()), Some("foobar".to_string()));
+
+    let mut new_entry = db.entries[db.entries.len() - 1].borrow_mut();
+    new_entry.username.as_mut().unwrap().unlock();
+    new_entry.password.as_mut().unwrap().unlock();
+    assert_eq!(new_entry.title, "test");
+    assert_eq!((new_entry.expire.year(), new_entry.expire.month(), new_entry.expire.day()),
+               (2015, 2, 28));
+    assert_eq!((new_entry.expire.hour(), new_entry.expire.minute(), new_entry.expire.second()),
+               (10, 10, 10));
+    assert_eq!(new_entry.image, 5);
+    assert_eq!(new_entry.url.as_ref().unwrap(), "http://foo");
+    assert_eq!(new_entry.comment.as_ref().unwrap(), "foo");
+    assert_eq!(new_entry.username.as_ref().unwrap().string, "bar");
+    assert_eq!(new_entry.password.as_ref().unwrap().string, "foobar");
+
+    assert_eq!(db.header.num_entries, num_entries_before + 1);
+}

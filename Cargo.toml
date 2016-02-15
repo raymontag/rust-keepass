@@ -13,12 +13,12 @@ test = true
 doctest = true
 doc = true
 
-[dependencies.openssl]
-
-git = "https://github.com/sfackler/rust-openssl.git"
-
 [dependencies]
 
 rustc-serialize = "0.3"
+libc = "0.1.10"
 rand = "0.3"
 chrono = "0.2"
+uuid = "0.1"
+openssl = "0.6.6"
+

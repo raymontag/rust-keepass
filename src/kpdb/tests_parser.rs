@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_imports)]
 
 use chrono::Datelike;
+use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
@@ -51,8 +52,8 @@ fn test_parse_groups () {
 
 #[test]
 fn test_parse_entries () {
-    let uuid: Vec<u8> = vec![0x0c, 0x31, 0xac, 0x94, 0x23, 0x47, 0x66, 0x36, 
-                             0xb8, 0xc0, 0x42, 0x81, 0x5e, 0x5a, 0x14, 0x60];
+    let uuid = Uuid::from_bytes(&[0x0c, 0x31, 0xac, 0x94, 0x23, 0x47, 0x66, 0x36, 
+                                  0xb8, 0xc0, 0x42, 0x81, 0x5e, 0x5a, 0x14, 0x60]).unwrap();
 
     let mut parser = setup("test/test_password.kdb".to_string(),
                            Some(SecureString::new("test".to_string())),
@@ -69,13 +70,14 @@ fn test_parse_entries () {
         Err(_) => assert!(false),
     }
 
-    entries[0].borrow_mut().password.unlock();
-
+    entries[0].borrow_mut().username.as_mut().unwrap().unlock();
+    entries[0].borrow_mut().password.as_mut().unwrap().unlock();
+    
     assert_eq!(entries[0].borrow().uuid, uuid);
     assert_eq!(entries[0].borrow().title, "foo");
-    assert_eq!(entries[0].borrow().url, "foo");
-    assert_eq!(entries[0].borrow().username, "foo");
-    assert_eq!(entries[0].borrow().password.string, "DLE\"H<JZ|E");
+    assert_eq!(entries[0].borrow().url, Some("foo".to_string()));
+    assert_eq!(entries[0].borrow().username.as_ref().unwrap().string, "foo");
+    assert_eq!(entries[0].borrow().password.as_ref().unwrap().string, "DLE\"H<JZ|E");
     assert_eq!(entries[0].borrow().image, 1);
     assert_eq!(entries[0].borrow().group_id, 1);
     assert_eq!(entries[0].borrow().creation.year(), 2014);
