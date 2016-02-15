@@ -212,7 +212,7 @@ impl Parser {
             return Err(V1KpdbError::TreeErr);
         }
 
-        for i in (0..db.groups.len()) {
+        for i in 0..db.groups.len() {
             // level 0 means that the group is not a sub group. Hence add it as a children
             // of the root
             if levels[i] == 0 {

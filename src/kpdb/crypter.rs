@@ -173,7 +173,7 @@ impl Crypter {
         let crypter = symm::Crypter::new(symm::Type::AES_256_ECB);
         crypter.init(symm::Mode::Encrypt,
                      &header.transf_randomseed, vec![]);
-        for _ in (0..header.key_transf_rounds) {
+        for _ in 0..header.key_transf_rounds {
             masterkey = crypter.update(&masterkey);
         }
         let mut hasher = Hasher::new(Type::SHA256);
