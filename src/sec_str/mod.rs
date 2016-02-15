@@ -2,7 +2,7 @@ use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use openssl::crypto::symm;
 use rand;
-use std::intrinsics;
+use std::ptr;
 
 #[doc = "
 SecureString implements a secure string. This means in particular:
@@ -55,8 +55,8 @@ impl SecureString {
     /// need the string anymore.
     pub fn delete(&self) {
         // Use volatile_set_memory to make sure that the operation is executed.
-        unsafe { intrinsics::volatile_set_memory(self.string.as_ptr() as *mut c_void, 0u8,
-                                                 self.string.len()) };
+        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void, 0u8,
+                                  self.string.len()) };
     }
     
     fn lock(&mut self) {
@@ -83,8 +83,8 @@ impl Drop for SecureString {
         self.delete();
         unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
                                self.string.len() as size_t);
-                 intrinsics::volatile_set_memory(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
-                                                 self.encrypted_string.len());
+                 ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
+                                  self.encrypted_string.len());
                  mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
                                self.encrypted_string.len() as size_t); }
     }
