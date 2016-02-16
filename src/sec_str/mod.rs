@@ -61,9 +61,7 @@ impl SecureString {
     /// need the string anymore.
     pub fn delete(&self) {
         // Use volatile_set_memory to make sure that the operation is executed.
-        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void,
-                                  0u8,
-                                  self.string.len()) };
+        unsafe { ptr::write_bytes(self.string.as_ptr() as *mut c_void, 0u8, self.string.len()) };
     }
 
     fn lock(&mut self) {
@@ -88,13 +86,15 @@ impl SecureString {
 impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
-        unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
-                               self.string.len() as size_t);
-                 ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void,
-                                  0u8,
-                                  self.encrypted_string.len());
-                 mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
-                               self.encrypted_string.len() as size_t); }
+        unsafe {
+            mman::munlock(self.string.as_ptr() as *const c_void,
+                          self.string.len() as size_t);
+            ptr::write_bytes(self.encrypted_string.as_ptr() as *mut c_void,
+                             0u8,
+                             self.encrypted_string.len());
+            mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
+                          self.encrypted_string.len() as size_t);
+        }
     }
 }
 

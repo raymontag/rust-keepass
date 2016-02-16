@@ -69,17 +69,15 @@ impl Crypter {
                            .map_err(|_| V1KpdbError::DecryptErr));
 
                 // Zero out unneeded keys
-                unsafe { ptr::write_bytes(passwordkey.as_ptr() as *mut c_void,
-                                          0u8,
-                                          passwordkey.len());
-                         ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void,
-                                          0u8,
-                                          keyfilekey.len());
-                         mman::munlock(passwordkey.as_ptr() as *const c_void,
-                                       passwordkey.len() as size_t);
-                         mman::munlock(keyfilekey.as_ptr() as *const c_void,
-                                       keyfilekey.len() as size_t); }
-                
+                unsafe {
+                    ptr::write_bytes(passwordkey.as_ptr() as *mut c_void, 0u8, passwordkey.len());
+                    ptr::write_bytes(keyfilekey.as_ptr() as *mut c_void, 0u8, keyfilekey.len());
+                    mman::munlock(passwordkey.as_ptr() as *const c_void,
+                                  passwordkey.len() as size_t);
+                    mman::munlock(keyfilekey.as_ptr() as *const c_void,
+                                  keyfilekey.len() as size_t);
+                }
+
                 hasher.finish()
             }
             (&mut None, &mut None) => return Err(V1KpdbError::PassErr),
@@ -168,10 +166,10 @@ impl Crypter {
                     };
                     buf.truncate(n);
                     try!(hasher.write_all(&buf[..])
-                         .map_err(|_| V1KpdbError::DecryptErr));
-                    unsafe { ptr::write_bytes(buf.as_ptr() as *mut c_void,
-                                              0u8,
-                                              buf.len()); }
+                               .map_err(|_| V1KpdbError::DecryptErr));
+                    unsafe {
+                        ptr::write_bytes(buf.as_ptr() as *mut c_void, 0u8, buf.len());
+                    }
                 }
                 Err(_) => {
                     return Err(V1KpdbError::ReadErr);
@@ -203,11 +201,11 @@ impl Crypter {
                    .map_err(|_| V1KpdbError::DecryptErr));
 
         // Zero out masterkey as it is not needed anymore
-        unsafe { ptr::write_bytes(masterkey.as_ptr() as *mut c_void,
-                                  0u8,
-                                  masterkey.len());
-                 mman::munlock(masterkey.as_ptr() as *const c_void,
-                               masterkey.len() as size_t); }
+        unsafe {
+            ptr::write_bytes(masterkey.as_ptr() as *mut c_void, 0u8, masterkey.len());
+            mman::munlock(masterkey.as_ptr() as *const c_void,
+                          masterkey.len() as size_t);
+        }
 
         Ok(hasher.finish())
     }
@@ -220,11 +218,10 @@ impl Crypter {
                                        &crypted_database);
 
         // Zero out finalkey as it is not needed anymore
-        unsafe { ptr::write_bytes(finalkey.as_ptr() as *mut c_void,
-                                  0u8,
-                                  finalkey.len());
-                 mman::munlock(finalkey.as_ptr() as *const c_void,
-                               finalkey.len() as size_t); }
+        unsafe {
+            ptr::write_bytes(finalkey.as_ptr() as *mut c_void, 0u8, finalkey.len());
+            mman::munlock(finalkey.as_ptr() as *const c_void, finalkey.len() as size_t);
+        }
 
         // Delete padding from decrypted data
         let padding = db_tmp[db_tmp.len() - 1] as usize;
