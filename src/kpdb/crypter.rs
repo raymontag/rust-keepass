@@ -129,7 +129,7 @@ impl Crypter {
             let mut key: String = "".to_string();
             match file.read_to_string(&mut key) {
                 Ok(_) => {
-                    match key.as_str().from_hex() {
+                    match (&key[..]).from_hex() {
                         Ok(e2) => return Ok(e2),
                         Err(_) => {},
                     }
@@ -151,7 +151,7 @@ impl Crypter {
                 {
                     if n == 0 {break};
                     buf.truncate(n);
-                    try!(hasher.write_all(buf.as_slice())
+                    try!(hasher.write_all(&buf[..])
                          .map_err(|_| V1KpdbError::DecryptErr));
                     unsafe { intrinsics::volatile_set_memory(buf.as_ptr() as *mut c_void,
                                                              0u8, buf.len()) };
