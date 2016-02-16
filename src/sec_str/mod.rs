@@ -39,13 +39,19 @@ impl SecureString {
     /// lie in memory. The string will be automatically encrypted and deleted.
     pub fn new(string: String) -> SecureString {
         // Lock the string against swapping
-        unsafe { mman::mlock(string.as_ptr() as *const c_void,
-                             string.len() as size_t); }
-        let mut sec_str = SecureString { string: string, encrypted_string: vec![],
-                                         password: (0..32).map(|_| rand::random::<u8>()).collect(),
-                                         iv: (0..32).map(|_| rand::random::<u8>()).collect() };
-        unsafe { mman::mlock(sec_str.encrypted_string.as_ptr() as *const c_void,
-                             sec_str.encrypted_string.len() as size_t); }
+        unsafe {
+            mman::mlock(string.as_ptr() as *const c_void, string.len() as size_t);
+        }
+        let mut sec_str = SecureString {
+            string: string,
+            encrypted_string: vec![],
+            password: (0..32).map(|_| rand::random::<u8>()).collect(),
+            iv: (0..32).map(|_| rand::random::<u8>()).collect(),
+        };
+        unsafe {
+            mman::mlock(sec_str.encrypted_string.as_ptr() as *const c_void,
+                        sec_str.encrypted_string.len() as size_t);
+        }
         sec_str.lock();
         sec_str.delete();
         sec_str
@@ -55,10 +61,13 @@ impl SecureString {
     /// need the string anymore.
     pub fn delete(&self) {
         // Use volatile_set_memory to make sure that the operation is executed.
-        unsafe { intrinsics::volatile_set_memory(self.string.as_ptr() as *mut c_void, 0u8,
-                                                 self.string.len()) };
+        unsafe {
+            intrinsics::volatile_set_memory(self.string.as_ptr() as *mut c_void,
+                                            0u8,
+                                            self.string.len())
+        };
     }
-    
+
     fn lock(&mut self) {
         self.encrypted_string = symm::encrypt(symm::Type::AES_256_CBC,
                                               &self.password,
@@ -72,8 +81,8 @@ impl SecureString {
         self.string = String::from_utf8(symm::decrypt(symm::Type::AES_256_CBC,
                                                       &self.password,
                                                       self.iv.clone(),
-                                                      &self.encrypted_string)
-                                        ).unwrap();
+                                                      &self.encrypted_string))
+                          .unwrap();
     }
 }
 
@@ -81,12 +90,15 @@ impl SecureString {
 impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
-        unsafe { mman::munlock(self.string.as_ptr() as *const c_void,
-                               self.string.len() as size_t);
-                 intrinsics::volatile_set_memory(self.encrypted_string.as_ptr() as *mut c_void, 0u8,
-                                                 self.encrypted_string.len());
-                 mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
-                               self.encrypted_string.len() as size_t); }
+        unsafe {
+            mman::munlock(self.string.as_ptr() as *const c_void,
+                          self.string.len() as size_t);
+            intrinsics::volatile_set_memory(self.encrypted_string.as_ptr() as *mut c_void,
+                                            0u8,
+                                            self.encrypted_string.len());
+            mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
+                          self.encrypted_string.len() as size_t);
+        }
     }
 }
 
@@ -98,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_drop() {
-        let mut test_vec:  Vec<u8> = Vec::with_capacity(4);
+        let mut test_vec: Vec<u8> = Vec::with_capacity(4);
         let mut test_vec2: Vec<u8> = Vec::with_capacity(4);
         unsafe {
             test_vec.set_len(4);
@@ -111,7 +123,7 @@ mod tests {
             copy(enc_str_ptr, test_vec.as_mut_ptr(), 4);
             copy(str_ptr, test_vec2.as_mut_ptr(), 4);
         }
-        assert_eq!(test_vec,  vec![0u8, 0u8, 0u8, 0u8]);
+        assert_eq!(test_vec, vec![0u8, 0u8, 0u8, 0u8]);
         assert_eq!(test_vec2, vec![0u8, 0u8, 0u8, 0u8]);
     }
     #[test]
@@ -128,11 +140,11 @@ mod tests {
         let str = "delete".to_string();
         let sec_str = SecureString::new(str);
         assert_eq!(sec_str.string, "\0\0\0\0\0\0");
-        
+
         // Test with umlauts
         let str = "ä".to_string();
         let sec_str = SecureString::new(str);
-        assert_eq!(sec_str.string, "\0\0");        
+        assert_eq!(sec_str.string, "\0\0");
     }
 
     #[test]
@@ -140,7 +152,7 @@ mod tests {
         let str = "delete".to_string();
         let mut sec_str = SecureString::new(str);
 
-        assert!(str::from_utf8(&sec_str.encrypted_string) !=  Ok("delete"));
+        assert!(str::from_utf8(&sec_str.encrypted_string) != Ok("delete"));
 
         sec_str.unlock();
         assert_eq!(sec_str.string, "delete");

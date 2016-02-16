@@ -12,4 +12,3 @@ mod parser;
 mod tests_v1kpdb;
 mod tests_parser;
 mod tests_crypter;
-

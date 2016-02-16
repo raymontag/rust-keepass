@@ -10,26 +10,26 @@ Normally you don't need to mess with this yourself.
 "]
 pub struct V1Header {
     /// File signature
-    pub signature1:        u32,
+    pub signature1: u32,
     /// File signature
-    pub signature2:        u32,
+    pub signature2: u32,
     /// Describes which encryption algorithm was used.
     /// 0b10 is for AES, 0b1000 is for Twofish (not
     /// supported, yet)
-    pub enc_flag:          u32,
+    pub enc_flag: u32,
     /// Version of the database. 0x00030002 is for v1.x
-    pub version:           u32,
+    pub version: u32,
     /// A seed used to create the final key
-    pub final_randomseed:  Vec<u8>,
+    pub final_randomseed: Vec<u8>,
     /// IV for AEC_CBC to de-/encrypt the database
-    pub iv:                Vec<u8>,
+    pub iv: Vec<u8>,
     /// Total number of groups in database
-    pub num_groups:        u32,
+    pub num_groups: u32,
     /// Total number of entries in database
-    pub num_entries:       u32,
+    pub num_entries: u32,
     /// Hash of the encrypted content to check success
     /// of decryption
-    pub contents_hash:     Vec<u8>,
+    pub contents_hash: Vec<u8>,
     /// A seed used to create the final key
     pub transf_randomseed: Vec<u8>,
     /// Specifies number of rounds of AES_ECB to create
@@ -40,17 +40,18 @@ pub struct V1Header {
 impl V1Header {
     /// Use this to create a new empty header
     pub fn new() -> V1Header {
-        V1Header { signature1:        0,
-                   signature2:        0,
-                   enc_flag:          0,
-                   version:           0,
-                   final_randomseed:  vec![],
-                   iv:                vec![],
-                   num_groups:        0,
-                   num_entries:       0,
-                   contents_hash:     vec![],
-                   transf_randomseed: vec![],
-                   key_transf_rounds: 0,
+        V1Header {
+            signature1: 0,
+            signature2: 0,
+            enc_flag: 0,
+            version: 0,
+            final_randomseed: vec![],
+            iv: vec![],
+            num_groups: 0,
+            num_entries: 0,
+            contents_hash: vec![],
+            transf_randomseed: vec![],
+            key_transf_rounds: 0,
         }
     }
 
@@ -59,14 +60,15 @@ impl V1Header {
         let mut file = try!(File::open(path).map_err(|_| V1KpdbError::FileErr));
         let header_bytes: &mut [u8] = &mut [0; 124];
         match file.read(header_bytes) {
-            Ok(n)  =>
+            Ok(n) => {
                 if n < 124 {
                     return Err(V1KpdbError::ReadErr);
-                },
+                }
+            }
             Err(_) => return Err(V1KpdbError::ReadErr),
         };
 
-        *self = try!(Parser::parse_header(header_bytes));        
+        *self = try!(Parser::parse_header(header_bytes));
         try!(V1Header::check_signatures(self));
         try!(V1Header::check_enc_flag(self));
         try!(V1Header::check_version(self));
@@ -92,12 +94,10 @@ impl V1Header {
     // Checks database version
     fn check_version(header: &V1Header) -> Result<(), V1KpdbError> {
         if header.version != 0x00030002u32 {
-            return Err(V1KpdbError::VersionErr)
+            return Err(V1KpdbError::VersionErr);
         }
         Ok(())
     }
-
-
 }
 
 #[cfg(test)]
@@ -107,7 +107,8 @@ mod tests {
     #[test]
     fn test_read_header() {
         let mut header = V1Header::new();
-        assert_eq!(header.read_header("test/test_password.kdb".to_string()).is_ok(), true);
+        assert_eq!(header.read_header("test/test_password.kdb".to_string()).is_ok(),
+                   true);
 
         let _ = header.read_header("test/test_password.kdb".to_string());
         assert_eq!(header.signature1, 0x9AA2D903u32);
