@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use chrono::{Timelike, Local, TimeZone, Datelike};
 
 use kpdb::v1kpdb::V1Kpdb;
@@ -82,7 +84,6 @@ fn test_create_group_w_everything() {
 
     let expire = Local.ymd(2015, 2, 28).and_hms(10, 10, 10);
     let parent = db.groups[1].clone();
-    println!("{}", parent.borrow().title);
     let image = 2;
 
     assert_eq!(db.create_group("test".to_string(), Some(expire), Some(image), Some(parent))
@@ -146,3 +147,22 @@ fn test_create_entry() {
 
     assert_eq!(db.header.num_entries, num_entries_before + 1);
 }
+
+#[test]
+fn test_remove_group() {
+    let mut result = V1Kpdb::new("test/test_parsing.kdb".to_string(),
+                                 Some("test".to_string()),
+                                 None);
+    match result {
+        Ok(ref mut e) => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    let num_groups_before = db.header.num_groups;
+    println!("{}", Rc::strong_count(&db.groups[2]));
+    let group = db.groups[2].clone();
+    println!("{}", Rc::strong_count(&db.groups[2]));
+    db.remove_group(group);
+}
+

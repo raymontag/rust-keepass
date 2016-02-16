@@ -181,7 +181,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    /// Create a new group
+    /// Create a new entry
     ///
     /// * group: group which should hold the entry
     ///
@@ -247,5 +247,36 @@ impl V1Kpdb {
 
         self.entries.push(new_entry);
         self.header.num_entries += 1;
+    }
+
+    pub fn remove_group(&mut self,
+                        group: Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+        println!("Now in remove group for: {}", group.borrow().title);
+        println!("Strong count: {}", Rc::strong_count(&group));
+        println!("Weak count: {}", Rc::weak_count(&group));
+        // TODO
+        // for entry in &(group.borrow().entries) {
+        //     self.remove_entry(entry)
+        // }
+        for child in &(group.borrow().children) {
+            if let Some(child_strong_reference) = child.upgrade() {
+                try!(self.remove_group(child_strong_reference));
+            } else {
+                // TODO: Error
+            }
+        }
+
+        let index = try!(self.groups.get_index(&(group.borrow())));
+        let group_db_reference = self.groups.remove(index);
+        drop(group_db_reference);
+        
+        if let Some(ref parent) = group.borrow().parent {
+            drop(parent);
+        }
+        
+        self.header.num_groups -= 1;
+        println!("Strong count: {}", Rc::strong_count(&group));
+        println!("Weak Count: {}", Rc::weak_count(&group));
+        Ok(())
     }
 }

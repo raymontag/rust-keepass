@@ -1,7 +1,7 @@
 #![crate_name="keepass"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
-#![feature(core_intrinsics)]
+#![feature(core_intrinsics, rc_counts)]
 
 extern crate libc;
 extern crate openssl;
