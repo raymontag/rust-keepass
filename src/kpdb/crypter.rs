@@ -6,11 +6,45 @@ use std::ptr;
 
 use openssl::crypto::hash::{Hasher, Type};
 use openssl::crypto::symm;
-use rustc_serialize::hex::FromHex;
 
 use super::v1header::V1Header;
 use super::v1error::V1KpdbError;
 use super::super::sec_str::SecureString;
+
+trait FromHex {
+    fn from_hex(&self) -> Result<Vec<u8>, ()>;
+}
+
+// Follows reference impl. for str from hex.rs of rustc_serialize
+impl FromHex for Vec<u8> {
+    fn from_hex(&self) -> Result<Vec<u8>, ()> {
+        let mut b = Vec::with_capacity(self.len() / 2);
+        let mut buf = 08;
+        let mut modulus = 0;
+        
+        for ch in self {
+            buf <<= 4;
+
+            match *ch {
+                b'A'...b'F' => buf |= ch - b'A' + 10,
+                b'a'...b'f' => buf |= ch - b'a' + 10,
+                b'0'...b'9' => buf |= ch - b'0',
+                _ => return Err(()),
+            }
+
+            modulus += 1;
+            if modulus == 2 {
+                modulus = 0;
+                b.push(buf);
+            }
+        }
+
+        match modulus {
+            0 => Ok(b.into_iter().collect()),
+            _ => Err(()),
+        }
+    }
+}
 
 // implements a crypter to de- and encrypt a KeePass DB
 pub struct Crypter {
@@ -126,15 +160,12 @@ impl Crypter {
             return Ok(key);
         } else if file_size == 64 {
             // interpret characters as encoded hex if possible (e.g. "FF" => 0xff)
-            let mut key: String = "".to_string();
-            match file.read_to_string(&mut key) {
-                Ok(_) => {
-                    match key.as_str().from_hex() {
-                        Ok(e2) => return Ok(e2),
-                        Err(_) => {},
-                    }
-                },
-                Err(_) => {},
+            let mut key: Vec<u8> = vec![];
+            if let Ok(_) = file.read_to_end(&mut key) {
+                match key.from_hex() {
+                    Ok(k) => return Ok(k),
+                    Err(_) => {},
+                }
             }
             try!(file.seek(SeekFrom::Start(0u64))
                  .map_err(|_| V1KpdbError::FileErr));
@@ -151,7 +182,7 @@ impl Crypter {
                 {
                     if n == 0 {break};
                     buf.truncate(n);
-                    try!(hasher.write_all(buf.as_slice())
+                    try!(hasher.write_all(&buf[..])
                          .map_err(|_| V1KpdbError::DecryptErr));
                     unsafe { ptr::write_bytes(buf.as_ptr() as *mut c_void, 0u8,
                                               buf.len()); }
