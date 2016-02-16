@@ -1,4 +1,4 @@
-use std::cell::{RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use chrono::{DateTime, Local};
@@ -30,10 +30,10 @@ TODO:
 "]
 pub struct V1Kpdb {
     /// Filepath of the database
-    pub path:     String,
+    pub path: String,
     /// Holds the header. Normally you don't need
     /// to manipulate this yourself
-    pub header:   V1Header,
+    pub header: V1Header,
     /// The groups which hold the entries
     pub groups: Vec<Rc<RefCell<V1Group>>>,
     /// The entries of the whole database
@@ -51,8 +51,7 @@ trait GetIndex<T> {
 }
 
 impl<T: Eq> GetIndex<T> for Vec<Rc<RefCell<T>>> {
-    fn get_index(&self, item: &T)
-                  -> Result<usize, V1KpdbError> {
+    fn get_index(&self, item: &T) -> Result<usize, V1KpdbError> {
         for index in 0..self.len() {
             if *(self[index].borrow()) == *item {
                 return Ok(index);
@@ -73,7 +72,8 @@ impl V1Kpdb {
     /// would lie in the memory though
     pub fn new(path: String,
                password: Option<String>,
-               keyfile: Option<String>) -> Result<V1Kpdb, V1KpdbError> {
+               keyfile: Option<String>)
+               -> Result<V1Kpdb, V1KpdbError> {
         // Password and/or keyfile needed but at least one of both
         if password.is_none() && keyfile.is_none() {
             return Err(V1KpdbError::PassErr);
@@ -87,11 +87,13 @@ impl V1Kpdb {
             None => None,
         };
 
-        Ok(V1Kpdb { path: path.clone(), header: V1Header::new(),
-                    groups: vec![], entries: vec![],
-                    root_group: Rc::new(RefCell::new(V1Group::new())),
-                    crypter: Crypter::new(path, sec_password,
-                                          sec_keyfile),
+        Ok(V1Kpdb {
+            path: path.clone(),
+            header: V1Header::new(),
+            groups: vec![],
+            entries: vec![],
+            root_group: Rc::new(RefCell::new(V1Group::new())),
+            crypter: Crypter::new(path, sec_password, sec_keyfile),
         })
     }
 
@@ -100,10 +102,11 @@ impl V1Kpdb {
         // First read header and decrypt the database
         try!(self.header.read_header(self.path.clone()));
         let decrypted_database = try!(self.crypter
-                                      .decrypt_database(&self.header));
+                                          .decrypt_database(&self.header));
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
-        let mut parser = Parser::new(decrypted_database, self.header.num_groups,
+        let mut parser = Parser::new(decrypted_database,
+                                     self.header.num_groups,
                                      self.header.num_entries);
         let (groups, levels) = try!(parser.parse_groups());
 
@@ -130,12 +133,12 @@ impl V1Kpdb {
     ///
     /// * parent: a group inside the groups vector which should be the parent in
     ///           the group tree. None means that the root group is the parent
-    pub fn create_group(&mut self, title: String,
+    pub fn create_group(&mut self,
+                        title: String,
                         expire: Option<DateTime<Local>>,
                         image: Option<u32>,
                         parent: Option<Rc<RefCell<V1Group>>>)
-                        -> Result<(), V1KpdbError>
-    {
+                        -> Result<(), V1KpdbError> {
         let mut new_id: u32 = 1;
         for group in self.groups.iter() {
             let id = group.borrow().id;
@@ -151,26 +154,27 @@ impl V1Kpdb {
         new_group.borrow_mut().last_mod = Local::now();
         new_group.borrow_mut().last_access = Local::now();
         match expire {
-            Some(s) => { new_group.borrow_mut().expire = s },
-            None => {}, // is 12-28-2999 23:59:59 through V1Group::new
+            Some(s) => new_group.borrow_mut().expire = s,
+            None => {} // is 12-28-2999 23:59:59 through V1Group::new
         }
         match image {
-            Some(s) => { new_group.borrow_mut().image = s },
-            None => {}, // is 0 through V1Group::new
+            Some(s) => new_group.borrow_mut().image = s,
+            None => {} // is 0 through V1Group::new
         }
         match parent {
-            Some(s) => { let index = try!(self.groups.get_index(&*s.borrow()));
-                         new_group.borrow_mut().parent = Some(s.clone());
-                         s.borrow_mut().children.push(
-                             Rc::downgrade(&new_group.clone()));
-                         self.groups.insert(index + 1, new_group);
+            Some(s) => {
+                let index = try!(self.groups.get_index(&*s.borrow()));
+                new_group.borrow_mut().parent = Some(s.clone());
+                s.borrow_mut().children.push(Rc::downgrade(&new_group.clone()));
+                self.groups.insert(index + 1, new_group);
 
-            },
-            None =>    { new_group.borrow_mut().parent = Some(self.root_group
-                                                            .clone());
-                         self.root_group.borrow_mut().children.push(
-                             Rc::downgrade(&new_group.clone()));
-                         self.groups.push(new_group); },
+            }
+            None => {
+                new_group.borrow_mut().parent = Some(self.root_group
+                                                         .clone());
+                self.root_group.borrow_mut().children.push(Rc::downgrade(&new_group.clone()));
+                self.groups.push(new_group);
+            }
         }
 
         self.header.num_groups += 1;
@@ -203,7 +207,7 @@ impl V1Kpdb {
     /// in memory as the new created String is a copy of the original &str. If you use
     /// String this function call is a move so that the String remains where it was
     /// created.
-    ///       
+    ///
     pub fn create_entry(&mut self,
                         group: Rc<RefCell<V1Group>>,
                         title: String,
@@ -212,8 +216,7 @@ impl V1Kpdb {
                         url: Option<String>,
                         comment: Option<String>,
                         username: Option<String>,
-                        password: Option<String>)
-    {
+                        password: Option<String>) {
         // Automatically creates a UUID for the entry
         let new_entry = Rc::new(RefCell::new(V1Entry::new()));
         new_entry.borrow_mut().title = title;
@@ -224,26 +227,25 @@ impl V1Kpdb {
         new_entry.borrow_mut().last_mod = Local::now();
         new_entry.borrow_mut().last_access = Local::now();
         match expire {
-            Some(s) => { new_entry.borrow_mut().expire = s },
-            None    => {}, // is 12-28-2999 23:59:59 through V1Entry::new()
+            Some(s) => new_entry.borrow_mut().expire = s,
+            None => {} // is 12-28-2999 23:59:59 through V1Entry::new()
         };
         match image {
-            Some(s) => { new_entry.borrow_mut().image = s },
-            None    => {}, // is 0 through V1Entry::new()
+            Some(s) => new_entry.borrow_mut().image = s,
+            None => {} // is 0 through V1Entry::new()
         }
         new_entry.borrow_mut().url = url;
         new_entry.borrow_mut().comment = comment;
         match username {
-            Some(s) => { new_entry.borrow_mut().username = Some(SecureString::new(s)) },
-            None    => {},
+            Some(s) => new_entry.borrow_mut().username = Some(SecureString::new(s)),
+            None => {}
         };
         match password {
-            Some(s) => { new_entry.borrow_mut().password = Some(SecureString::new(s)) },
-            None    => {},
+            Some(s) => new_entry.borrow_mut().password = Some(SecureString::new(s)),
+            None => {}
         };
-        
+
         self.entries.push(new_entry);
         self.header.num_entries += 1;
     }
 }
-

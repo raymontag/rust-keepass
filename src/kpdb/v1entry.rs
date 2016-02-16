@@ -48,27 +48,28 @@ impl V1Entry {
     /// Normally you want to use the API
     /// of V1Kpdb to do this
     pub fn new() -> V1Entry {
-        V1Entry { uuid: Uuid::new_v4(),
-                  group_id: 0,
-                  group: None,
-                  image: 0,
-                  title: "".to_string(),
-                  url: None,
-                  username: None,
-                  password: None,
-                  comment: None,
-                  binary_desc: None,
-                  binary: None,
-                  creation: Local::now(),
-                  last_mod: Local::now(),
-                  last_access: Local::now(),
-                  expire: Local.ymd(2999, 12, 28).and_hms(23, 59, 59),
+        V1Entry {
+            uuid: Uuid::new_v4(),
+            group_id: 0,
+            group: None,
+            image: 0,
+            title: "".to_string(),
+            url: None,
+            username: None,
+            password: None,
+            comment: None,
+            binary_desc: None,
+            binary: None,
+            creation: Local::now(),
+            last_mod: Local::now(),
+            last_access: Local::now(),
+            expire: Local.ymd(2999, 12, 28).and_hms(23, 59, 59),
         }
     }
 }
 
-impl PartialEq for V1Entry{
-    fn eq(&self, other: &V1Entry) -> bool{
+impl PartialEq for V1Entry {
+    fn eq(&self, other: &V1Entry) -> bool {
         self.uuid == other.uuid
     }
 }

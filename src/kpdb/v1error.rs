@@ -40,9 +40,9 @@ pub enum V1KpdbError {
 }
 
 impl fmt::Display for V1KpdbError {
-     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-         fmt.write_str(error::Error::description(self))
-     }
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str(error::Error::description(self))
+    }
 }
 
 impl error::Error for V1KpdbError {
