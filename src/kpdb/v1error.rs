@@ -35,8 +35,10 @@ pub enum V1KpdbError {
     TreeErr,
     /// Password and/or keyfile needed but at least one of both
     PassErr,
-    /// Can't find parent in groups
-    ParentErr,
+    /// Can't find item in Vec
+    IndexErr,
+    /// Tried upgrade of weak reference without strong one
+    WeakErr,
 }
 
 impl fmt::Display for V1KpdbError {
@@ -59,7 +61,8 @@ impl error::Error for V1KpdbError {
             OffsetErr => "Some error while parsing the database. Probably a corrupted file",
             TreeErr => "Group tree is corrupted",
             PassErr => "Password and/or keyfile needed but at least one of both",
-            ParentErr => "Can't find parent in groups",
+            IndexErr => "Can't find item in Vec",
+            WeakErr => "Tried upgrade of weak reference without strong one"
         }
     }
 }

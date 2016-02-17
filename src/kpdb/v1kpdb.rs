@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use chrono::{DateTime, Local};
 
+use kpdb::GetIndex;
 use kpdb::crypter::Crypter;
 use kpdb::parser::Parser;
 use kpdb::v1error::V1KpdbError;
@@ -44,22 +45,6 @@ pub struct V1Kpdb {
     pub root_group: Rc<RefCell<V1Group>>,
     // Used to de- and encrypt the database
     crypter: Crypter,
-}
-
-trait GetIndex<T> {
-    fn get_index(&self, item: &T) -> Result<usize, V1KpdbError>;
-}
-
-impl<T: Eq> GetIndex<T> for Vec<Rc<RefCell<T>>> {
-    fn get_index(&self, item: &T) -> Result<usize, V1KpdbError> {
-        for index in 0..self.len() {
-            if *(self[index].borrow()) == *item {
-                return Ok(index);
-            }
-        }
-
-        Err(V1KpdbError::ParentErr)
-    }
 }
 
 impl V1Kpdb {
@@ -163,7 +148,7 @@ impl V1Kpdb {
         }
         match parent {
             Some(s) => {
-                let index = try!(self.groups.get_index(&*s.borrow()));
+                let index = try!(self.groups.get_index(&s));
                 new_group.borrow_mut().parent = Some(s.clone());
                 s.borrow_mut().children.push(Rc::downgrade(&new_group.clone()));
                 self.groups.insert(index + 1, new_group);
@@ -251,32 +236,73 @@ impl V1Kpdb {
 
     pub fn remove_group(&mut self,
                         group: Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
-        println!("Now in remove group for: {}", group.borrow().title);
-        println!("Strong count: {}", Rc::strong_count(&group));
-        println!("Weak count: {}", Rc::weak_count(&group));
-        // TODO
-        // for entry in &(group.borrow().entries) {
-        //     self.remove_entry(entry)
-        // }
-        for child in &(group.borrow().children) {
-            if let Some(child_strong_reference) = child.upgrade() {
-                try!(self.remove_group(child_strong_reference));
-            } else {
-                // TODO: Error
-            }
-        }
 
-        let index = try!(self.groups.get_index(&(group.borrow())));
-        let group_db_reference = self.groups.remove(index);
-        drop(group_db_reference);
-        
+        // TODO: Remove critical data
+        try!(self.remove_group_from_db(&group));
+        self.remove_entries(&group);
         if let Some(ref parent) = group.borrow().parent {
+            try!(parent.borrow_mut().drop_weak_child_reference(&group));
             drop(parent);
         }
-        
+        try!(self.remove_children(&group));
+        Ok(())
+    }
+
+    fn remove_group_from_db(&mut self,
+                            group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+        let index = try!(self.groups.get_index(group));
+        let db_reference = self.groups.remove(index);
+        drop(db_reference);
         self.header.num_groups -= 1;
-        println!("Strong count: {}", Rc::strong_count(&group));
-        println!("Weak Count: {}", Rc::weak_count(&group));
+        Ok(())
+    }
+
+    fn remove_entry_from_db(&mut self,
+                            entry: &Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
+        let index = try!(self.entries.get_index(entry));
+        let db_reference = self.entries.remove(index);
+        drop(db_reference);
+        self.header.num_entries -= 1;
+        Ok(())
+    }
+
+    fn remove_entries(&mut self,
+                      group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+        // Clone needed to prevent thread panning through borrowing
+        let entries = group.borrow().entries.clone();
+        for entry in entries {
+            if let Some(entry_strong) = entry.upgrade() {
+                try!(self.remove_entry(entry_strong));
+            } else {
+                return Err(V1KpdbError::WeakErr);
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_children(&mut self,
+                       group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+        // Clone needed to prevent thread panning through borrowing
+        let children = group.borrow().children.clone();
+        for child in children {
+            if let Some(child_strong) = child.upgrade() {
+                try!(self.remove_group(child_strong));
+            } else {
+                return Err(V1KpdbError::WeakErr);
+            }
+        }
+        Ok(())
+    }
+    
+    pub fn remove_entry(&mut self,
+                        entry: Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
+        // TODO: Remove critical data
+        try!(self.remove_entry_from_db(&entry));
+
+        if let Some(ref group) = entry.borrow().group {
+            try!(group.borrow_mut().drop_weak_entry_reference(&entry));
+            drop(group);
+        }
         Ok(())
     }
 }
