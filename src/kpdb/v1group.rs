@@ -59,15 +59,17 @@ impl V1Group {
     }
 
     pub fn drop_weak_child_reference(&mut self,
-                                     child: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+                                     child: &Rc<RefCell<V1Group>>)
+                                     -> Result<(), V1KpdbError> {
         let index = try!(self.children.get_index(child));
         let weak_group_reference = self.children.remove(index);
         drop(weak_group_reference);
         Ok(())
     }
-    
+
     pub fn drop_weak_entry_reference(&mut self,
-                                     entry: &Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
+                                     entry: &Rc<RefCell<V1Entry>>)
+                                     -> Result<(), V1KpdbError> {
         let index = try!(self.entries.get_index(entry));
         let weak_entry_reference = self.entries.remove(index);
         drop(weak_entry_reference);

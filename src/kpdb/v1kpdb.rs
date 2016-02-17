@@ -234,12 +234,11 @@ impl V1Kpdb {
         self.header.num_entries += 1;
     }
 
-    pub fn remove_group(&mut self,
-                        group: Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+    pub fn remove_group(&mut self, group: Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
 
         // TODO: Remove critical data
         try!(self.remove_group_from_db(&group));
-        self.remove_entries(&group);
+        try!(self.remove_entries(&group));
         if let Some(ref parent) = group.borrow().parent {
             try!(parent.borrow_mut().drop_weak_child_reference(&group));
             drop(parent);
@@ -248,8 +247,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn remove_group_from_db(&mut self,
-                            group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+    fn remove_group_from_db(&mut self, group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
         let index = try!(self.groups.get_index(group));
         let db_reference = self.groups.remove(index);
         drop(db_reference);
@@ -257,8 +255,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn remove_entry_from_db(&mut self,
-                            entry: &Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
+    fn remove_entry_from_db(&mut self, entry: &Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
         let index = try!(self.entries.get_index(entry));
         let db_reference = self.entries.remove(index);
         drop(db_reference);
@@ -266,8 +263,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn remove_entries(&mut self,
-                      group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+    fn remove_entries(&mut self, group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
         // Clone needed to prevent thread panning through borrowing
         let entries = group.borrow().entries.clone();
         for entry in entries {
@@ -280,8 +276,7 @@ impl V1Kpdb {
         Ok(())
     }
 
-    fn remove_children(&mut self,
-                       group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
+    fn remove_children(&mut self, group: &Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
         // Clone needed to prevent thread panning through borrowing
         let children = group.borrow().children.clone();
         for child in children {
@@ -293,9 +288,8 @@ impl V1Kpdb {
         }
         Ok(())
     }
-    
-    pub fn remove_entry(&mut self,
-                        entry: Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
+
+    pub fn remove_entry(&mut self, entry: Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
         // TODO: Remove critical data
         try!(self.remove_entry_from_db(&entry));
 

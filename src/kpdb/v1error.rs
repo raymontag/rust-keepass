@@ -62,7 +62,7 @@ impl error::Error for V1KpdbError {
             TreeErr => "Group tree is corrupted",
             PassErr => "Password and/or keyfile needed but at least one of both",
             IndexErr => "Can't find item in Vec",
-            WeakErr => "Tried upgrade of weak reference without strong one"
+            WeakErr => "Tried upgrade of weak reference without strong one",
         }
     }
 }
