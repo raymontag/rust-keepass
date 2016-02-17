@@ -3,7 +3,9 @@ use std::rc::{Rc, Weak};
 
 use chrono::{DateTime, Local, TimeZone};
 
-use super::v1entry::V1Entry;
+use kpdb::GetIndex;
+use kpdb::v1entry::V1Entry;
+use kpdb::v1error::V1KpdbError;
 
 #[doc = "
 Implements a group of a KeePass v1.x database
@@ -54,6 +56,24 @@ impl V1Group {
             children: vec![],
             entries: vec![], // db: box None,
         }
+    }
+
+    pub fn drop_weak_child_reference(&mut self,
+                                     child: &Rc<RefCell<V1Group>>)
+                                     -> Result<(), V1KpdbError> {
+        let index = try!(self.children.get_index(child));
+        let weak_group_reference = self.children.remove(index);
+        drop(weak_group_reference);
+        Ok(())
+    }
+
+    pub fn drop_weak_entry_reference(&mut self,
+                                     entry: &Rc<RefCell<V1Entry>>)
+                                     -> Result<(), V1KpdbError> {
+        let index = try!(self.entries.get_index(entry));
+        let weak_entry_reference = self.entries.remove(index);
+        drop(weak_entry_reference);
+        Ok(())
     }
 }
 

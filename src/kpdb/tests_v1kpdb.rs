@@ -82,7 +82,6 @@ fn test_create_group_w_everything() {
 
     let expire = Local.ymd(2015, 2, 28).and_hms(10, 10, 10);
     let parent = db.groups[1].clone();
-    println!("{}", parent.borrow().title);
     let image = 2;
 
     assert_eq!(db.create_group("test".to_string(), Some(expire), Some(image), Some(parent))
@@ -145,4 +144,78 @@ fn test_create_entry() {
     assert_eq!(new_entry.password.as_ref().unwrap().string, "foobar");
 
     assert_eq!(db.header.num_entries, num_entries_before + 1);
+}
+
+#[test]
+fn test_remove_group() {
+    let mut result = V1Kpdb::new("test/test_parsing.kdb".to_string(),
+                                 Some("test".to_string()),
+                                 None);
+    match result {
+        Ok(ref mut e) => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    let group = db.groups[2].clone();
+    let num_groups_before = db.header.num_groups;
+    let num_groups_in_root = db.groups[0].borrow().children.len();
+    let num_entries_before = db.header.num_entries;
+    let num_entries_in_db = db.entries.len();
+
+    assert_eq!(db.remove_group(group).is_ok(), true);
+    assert_eq!(db.groups.len() as u32, num_groups_before - 5);
+    assert_eq!(db.header.num_groups, num_groups_before - 5);
+    assert_eq!(db.groups[0].borrow().children.len(), num_groups_in_root - 1);
+    assert_eq!(db.header.num_entries, num_entries_before - 3);
+    assert_eq!(db.entries.len(), num_entries_in_db - 3);
+}
+
+#[test]
+fn test_remove_group_easy() {
+    let mut result = V1Kpdb::new("test/test_password.kdb".to_string(),
+                                 Some("test".to_string()),
+                                 None);
+    match result {
+        Ok(ref mut e) => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    let num_groups_before = db.header.num_groups;
+    let num_groups_in_root = db.root_group.borrow().children.len();
+    let num_entries_before = db.header.num_entries;
+    let num_entries_in_db = db.entries.len();
+
+    let group = db.groups[0].clone();
+    assert_eq!(db.remove_group(group).is_ok(), true);
+    assert_eq!(db.groups.len() as u32, num_groups_before - 1);
+    assert_eq!(db.header.num_groups, num_groups_before - 1);
+    assert_eq!(db.root_group.borrow().children.len(),
+               num_groups_in_root - 1);
+    assert_eq!(db.header.num_entries, num_entries_before - 1);
+    assert_eq!(db.entries.len(), num_entries_in_db - 1);
+}
+
+#[test]
+fn test_remove_entry() {
+    let mut result = V1Kpdb::new("test/test_password.kdb".to_string(),
+                                 Some("test".to_string()),
+                                 None);
+    match result {
+        Ok(ref mut e) => assert_eq!(e.load().is_ok(), true),
+        Err(_) => assert!(false),
+    };
+    let mut db = result.unwrap();
+
+    let entry = db.entries[0].clone();
+    let num_entries_before = db.header.num_entries;
+    let num_entries_in_db = db.entries.len();
+    let num_entries_in_group = db.groups[0].borrow().entries.len();
+
+    assert_eq!(db.remove_entry(entry).is_ok(), true);
+    assert_eq!(db.header.num_entries, num_entries_before - 1);
+    assert_eq!(db.entries.len(), num_entries_in_db - 1);
+    assert_eq!(db.groups[0].borrow().entries.len(),
+               num_entries_in_group - 1);
 }
