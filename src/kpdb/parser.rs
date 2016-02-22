@@ -1,7 +1,7 @@
 use libc::{c_void, size_t};
 use libc::funcs::posix88::mman;
 use std::cell::{RefCell, RefMut};
-use std::ptr;
+use std::intrinsics;
 use std::rc::Rc;
 use std::str;
 
@@ -296,9 +296,9 @@ impl Parser {
     pub fn delete_decrypted_content(&mut self) {
         // Zero out raw data as it's not needed anymore
         unsafe {
-            ptr::write_bytes(self.decrypted_database.as_ptr() as *mut c_void,
-                             0u8,
-                             self.decrypted_database.len());
+            intrinsics::volatile_set_memory(self.decrypted_database.as_ptr() as *mut c_void,
+                                            0u8,
+                                            self.decrypted_database.len());
             mman::munlock(self.decrypted_database.as_ptr() as *const c_void,
                           self.decrypted_database.len() as size_t);
         }
