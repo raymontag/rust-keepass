@@ -235,8 +235,8 @@ impl V1Kpdb {
     }
 
     pub fn remove_group(&mut self, group: Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
-
-        // TODO: Remove critical data
+        // Sensitive data (e.g. SecureString) is automatically dropped at the end of this
+        // function as Rc is 0 then
         try!(self.remove_group_from_db(&group));
         try!(self.remove_entries(&group));
         if let Some(ref parent) = group.borrow().parent {
@@ -290,7 +290,8 @@ impl V1Kpdb {
     }
 
     pub fn remove_entry(&mut self, entry: Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
-        // TODO: Remove critical data
+        // Sensitive data (e.g. SecureString) is automatically dropped at the end of this
+        // function as Rc is 0 then
         try!(self.remove_entry_from_db(&entry));
 
         if let Some(ref group) = entry.borrow().group {
