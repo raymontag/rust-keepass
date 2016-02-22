@@ -27,7 +27,8 @@ TODO:
 
 * saving
 * editing
-* get rid of unwrap and use more pattern matching
+* use more pattern matching
+* usage examples
 "]
 pub struct V1Kpdb {
     /// Filepath of the database
@@ -234,6 +235,14 @@ impl V1Kpdb {
         self.header.num_entries += 1;
     }
 
+    /// Remove a group
+    ///
+    /// * group: The group to remove
+    ///
+    /// Note: Entries and children of the group are deleted, too.
+    ///
+    /// The group should be given to the function as a move. If this is done, the rc counter
+    /// is 0 at the end of the function and therefore sensitive data is deleted correctly.
     pub fn remove_group(&mut self, group: Rc<RefCell<V1Group>>) -> Result<(), V1KpdbError> {
         // Sensitive data (e.g. SecureString) is automatically dropped at the end of this
         // function as Rc is 0 then
@@ -289,6 +298,12 @@ impl V1Kpdb {
         Ok(())
     }
 
+    /// Remove a group
+    ///
+    /// * entry: The entry to remove.
+    ///
+    /// Note: The entry should be given to the function as a move. If this is done, the rc counter
+    /// is 0 at the end of the function and therefore sensitive data is deleted correctly.
     pub fn remove_entry(&mut self, entry: Rc<RefCell<V1Entry>>) -> Result<(), V1KpdbError> {
         // Sensitive data (e.g. SecureString) is automatically dropped at the end of this
         // function as Rc is 0 then
