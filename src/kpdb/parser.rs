@@ -5,10 +5,11 @@ use std::intrinsics;
 use std::rc::Rc;
 use std::str;
 
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{DateTime, Local, TimeZone, Datelike, Timelike};
+use rustc_serialize::hex::FromHex;
 use uuid::Uuid;
 
-use kpdb::common::{slice_to_u16, slice_to_u32};
+use kpdb::common::{slice_to_u16, slice_to_u32, u16_to_vec_u8, u32_to_vec_u8};
 use kpdb::v1error::V1KpdbError;
 use kpdb::v1kpdb::V1Kpdb;
 use kpdb::v1entry::V1Entry;
@@ -16,17 +17,17 @@ use kpdb::v1group::V1Group;
 use sec_str::SecureString;
 use kpdb::v1header::V1Header;
 
-// Implements a parser to parse a KeePass DB
-pub struct Parser {
+// Implements a parser to load a KeePass DB
+pub struct LoadParser {
     pos: usize,
     decrypted_database: Vec<u8>,
     num_groups: u32,
     num_entries: u32,
 }
 
-impl Parser {
-    pub fn new(decrypted_database: Vec<u8>, num_groups: u32, num_entries: u32) -> Parser {
-        Parser {
+impl LoadParser {
+    pub fn new(decrypted_database: Vec<u8>, num_groups: u32, num_entries: u32) -> LoadParser {
+        LoadParser {
             pos: 0usize,
             decrypted_database: decrypted_database,
             num_groups: num_groups,
@@ -146,10 +147,10 @@ impl Parser {
                                   .unwrap_or("")
                                   .to_string()
             }
-            0x0003 => group.creation = Parser::get_date(db_slice),
-            0x0004 => group.last_mod = Parser::get_date(db_slice),
-            0x0005 => group.last_access = Parser::get_date(db_slice),
-            0x0006 => group.expire = Parser::get_date(db_slice),
+            0x0003 => group.creation = LoadParser::get_date(db_slice),
+            0x0004 => group.last_mod = LoadParser::get_date(db_slice),
+            0x0005 => group.last_access = LoadParser::get_date(db_slice),
+            0x0006 => group.expire = LoadParser::get_date(db_slice),
             0x0007 => group.image = try!(slice_to_u32(db_slice)),
             0x0008 => group.level = try!(slice_to_u16(db_slice)),
             0x0009 => group.flags = try!(slice_to_u32(db_slice)),
@@ -197,10 +198,10 @@ impl Parser {
                                                             .to_string()))
             }
             0x0008 => entry.comment = Some(str::from_utf8(db_slice).unwrap_or("").to_string()),
-            0x0009 => entry.creation = Parser::get_date(db_slice),
-            0x000A => entry.last_mod = Parser::get_date(db_slice),
-            0x000B => entry.last_access = Parser::get_date(db_slice),
-            0x000C => entry.expire = Parser::get_date(db_slice),
+            0x0009 => entry.creation = LoadParser::get_date(db_slice),
+            0x000A => entry.last_mod = LoadParser::get_date(db_slice),
+            0x000B => entry.last_access = LoadParser::get_date(db_slice),
+            0x000C => entry.expire = LoadParser::get_date(db_slice),
             0x000D => {
                 entry.binary_desc = Some(str::from_utf8(db_slice)
                                              .unwrap_or("")
@@ -309,7 +310,7 @@ impl Parser {
 
         let mut final_randomseed: Vec<u8> = vec![];
         let mut iv: Vec<u8> = vec![];
-        let mut contents_hash: Vec<u8> = vec![];
+        let mut content_hash: Vec<u8> = vec![];
         let mut transf_randomseed: Vec<u8> = vec![];
 
         let signature1 = try!(slice_to_u32(&header_bytes[0..4]));
@@ -320,7 +321,7 @@ impl Parser {
         iv.extend(&header_bytes[32..48]);
         let num_groups = try!(slice_to_u32(&header_bytes[48..52]));
         let num_entries = try!(slice_to_u32(&header_bytes[52..56]));
-        contents_hash.extend(&header_bytes[56..88]);
+        content_hash.extend(&header_bytes[56..88]);
         transf_randomseed.extend(&header_bytes[88..120]);
         let key_transf_rounds = try!(slice_to_u32(&header_bytes[120..124]));
 
@@ -334,15 +335,172 @@ impl Parser {
             iv: iv,
             num_groups: num_groups,
             num_entries: num_entries,
-            contents_hash: contents_hash,
+            content_hash: content_hash,
             transf_randomseed: transf_randomseed,
             key_transf_rounds: key_transf_rounds,
         })
     }
 }
 
-impl Drop for Parser {
+impl Drop for LoadParser {
     fn drop(&mut self) {
         self.delete_decrypted_content();
     }
 }
+
+// Implements a parser to save a KeePass DB
+pub struct SaveParser {
+    pub database: Vec<u8>,
+}
+
+impl SaveParser {
+    pub fn new() -> SaveParser {
+        SaveParser {
+            database: vec![],
+        }
+    }
+
+    pub fn prepare(&mut self, database: &V1Kpdb) {
+        self.save_groups(database);
+        self.save_entries(database);
+    }
+    
+    fn save_groups(&mut self,
+                   database: &V1Kpdb) {
+        let mut ret: Vec<u8>;
+        let mut ret_len: u16;
+        for group in &database.groups {
+            for field_type in 1..10 as u32 {
+                ret = SaveParser::save_group_field(group.clone(), field_type);
+                ret_len = ret.len() as u16;
+                if ret_len > 0 {
+                    self.database.append(&mut u16_to_vec_u8(ret_len));
+                    self.database.append(&mut u32_to_vec_u8(field_type));
+                    self.database.append(&mut ret);
+                }
+
+                self.database.append(&mut vec![0xFFu8, 0xFFu8]);
+                self.database.append(&mut vec![0u8, 0u8, 0u8, 0u8]);
+            }
+        }
+    }
+
+    fn save_entries(&mut self,
+                    database: &V1Kpdb) {
+        let mut ret: Vec<u8>;
+        let mut ret_len: u16;
+        for entry in &database.entries {
+            for field_type in 1..15 as u32 {
+                ret = SaveParser::save_entry_field(entry.clone(), field_type);
+                ret_len = ret.len() as u16;
+                if ret_len > 0 {
+                    self.database.append(&mut u16_to_vec_u8(ret_len));
+                    self.database.append(&mut u32_to_vec_u8(field_type));
+                    self.database.append(&mut ret);
+                }
+
+                self.database.append(&mut vec![0xFFu8, 0xFFu8]);
+                self.database.append(&mut vec![0u8, 0u8, 0u8, 0u8]);
+            }
+        }        
+    }
+    
+    fn save_group_field(group: Rc<RefCell<V1Group>>,
+                        field_type: u32) -> Vec<u8> {
+        match field_type {
+            0x0001 => return u32_to_vec_u8(group.borrow().id),
+            0x0002 => return group.borrow().title.clone().into_bytes(),
+            0x0003 => return SaveParser::pack_date(&group.borrow().creation),
+            0x0004 => return SaveParser::pack_date(&group.borrow().last_mod),
+            0x0005 => return SaveParser::pack_date(&group.borrow().last_access),
+            0x0006 => return SaveParser::pack_date(&group.borrow().expire),
+            0x0007 => return u32_to_vec_u8(group.borrow().image),
+            0x0008 => return u16_to_vec_u8(group.borrow().level),
+            0x0009 => return u32_to_vec_u8(group.borrow().flags),
+            _ => (),
+        }
+
+        return vec![];
+    }
+
+    fn save_entry_field(entry: Rc<RefCell<V1Entry>>,
+                        field_type: u32) -> Vec<u8> {
+        match field_type {
+            0x0001 => return (&entry.borrow().uuid.to_simple_string()[..]).from_hex().unwrap(), //Should never fail
+            0x0002 => return u32_to_vec_u8(entry.borrow().group_id),
+            0x0003 => return u32_to_vec_u8(entry.borrow().image),
+            0x0004 => {
+                let mut ret = entry.borrow().title.clone().into_bytes();
+                ret.push(0);
+                return ret;
+            },
+            0x0005 => {
+                if let Some(ref url) = entry.borrow().url {
+                    let mut ret = url.clone().into_bytes();
+                    ret.push(0);
+                    return ret;                    
+                }
+            },
+            0x0006 => {
+                if let Some(ref mut username) = entry.borrow_mut().username {
+                    username.unlock();
+                    let mut ret = username.string.clone().into_bytes();
+                    ret.push(0);
+                    return ret;
+                }
+            },
+            0x0007 => {
+                if let Some(ref mut password) = entry.borrow_mut().password {
+                    password.unlock();
+                    let mut ret = password.string.clone().into_bytes();
+                    ret.push(0);
+                    return ret;
+                }
+            },
+            0x0008 => {
+                if let Some(ref comment) = entry.borrow().comment {
+                    let mut ret = comment.clone().into_bytes();
+                    ret.push(0);
+                    return ret;                    
+                }
+            },
+            0x0009 => return SaveParser::pack_date(&entry.borrow().creation),
+            0x000A => return SaveParser::pack_date(&entry.borrow().last_mod),
+            0x000B => return SaveParser::pack_date(&entry.borrow().last_access),
+            0x000C => return SaveParser::pack_date(&entry.borrow().expire),
+            0x000D => {
+                if let Some(ref binary_desc) = entry.borrow().binary_desc {
+                    let mut ret = binary_desc.clone().into_bytes();
+                    ret.push(0);
+                    return ret;                    
+                }
+            },
+            0x000E => {
+                if let Some(ref binary) = entry.borrow().binary {
+                    return binary.clone();
+                }
+            },
+            _ => (),
+        }
+
+        return vec![];        
+    }
+    
+    fn pack_date(date: &DateTime<Local>) -> Vec<u8> {
+        let year = date.year() as i32;
+        let month = date.month() as i32;
+        let day = date.day() as i32;
+        let hour = date.hour() as i32;
+        let minute = date.minute() as i32;
+        let second = date.second() as i32;
+        
+        let dw1 = (0x0000FFFF & ((year>>6) & 0x0000003F)) as u8;
+        let dw2 = (0x0000FFFF & ((year & 0x0000003F)<<2 | ((month>>2) & 0x00000003))) as u8;
+        let dw3 = (0x0000FFFF & (((month & 0x0000003)<<6) | ((day & 0x0000001F)<<1) | ((hour>>4) & 0x00000001))) as u8;
+        let dw4 = (0x0000FFFF & (((hour & 0x0000000F)<<4) | ((minute>>2) & 0x0000000F))) as u8;
+        let dw5 = (0x0000FFFF & (((minute & 0x00000003)<<6) | (second & 0x0000003F))) as u8;
+
+        vec![dw1, dw2, dw3, dw4, dw5]
+    }
+}
+

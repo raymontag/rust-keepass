@@ -4,12 +4,12 @@ use chrono::Datelike;
 use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
-use kpdb::parser::Parser;
+use kpdb::parser::{LoadParser,SaveParser};
 use kpdb::v1header::V1Header;
 use kpdb::v1kpdb::V1Kpdb;
 use super::super::sec_str::SecureString;
 
-fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureString>) -> Parser {
+fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureString>) -> LoadParser {
     let mut header = V1Header::new();
     let _ = header.read_header(path.clone());
     let mut crypter = Crypter::new(path, password, keyfile);
@@ -22,7 +22,7 @@ fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureStr
         Err(_) => assert!(false),
     };
 
-    Parser::new(decrypted_database, header.num_groups, header.num_entries)
+    LoadParser::new(decrypted_database, header.num_groups, header.num_entries)
 }
 
 #[test]

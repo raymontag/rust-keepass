@@ -12,6 +12,10 @@ use super::v1header::V1Header;
 use super::v1error::V1KpdbError;
 use super::super::sec_str::SecureString;
 
+// TODO
+// * key generation in one function
+// * crypter design overall
+
 // implements a crypter to de- and encrypt a KeePass DB
 pub struct Crypter {
     path: String,
@@ -107,6 +111,64 @@ impl Crypter {
         Ok(decrypted_database)
     }
 
+    pub fn encrypt_database(header: &V1Header, database: Vec<u8>) -> Result<Vec<u8>, V1KpdbError> {
+        // // Create the key and decrypt the database finally
+        // let masterkey = match (&mut self.password, &mut self.keyfile) {
+        //     // Only password provided
+        //     (&mut Some(ref mut p), &mut None) => try!(Crypter::get_passwordkey(p)),
+        //     // Only keyfile provided
+        //     (&mut None, &mut Some(ref mut k)) => try!(Crypter::get_keyfilekey(k)),
+        //     // Both provided
+        //     (&mut Some(ref mut p), &mut Some(ref mut k)) => {
+        //         // Get hashed keys...
+        //         let passwordkey = try!(Crypter::get_passwordkey(p));
+        //         unsafe {
+        //             mman::mlock(passwordkey.as_ptr() as *const c_void,
+        //                         passwordkey.len() as size_t);
+        //         }
+
+        //         let keyfilekey = try!(Crypter::get_keyfilekey(k));
+        //         unsafe {
+        //             mman::mlock(keyfilekey.as_ptr() as *const c_void,
+        //                         keyfilekey.len() as size_t);
+        //         }
+
+        //         // ...and hash them together
+        //         let mut hasher = Hasher::new(Type::SHA256);
+        //         try!(hasher.write_all(&passwordkey)
+        //                    .map_err(|_| V1KpdbError::DecryptErr));
+        //         try!(hasher.write_all(&keyfilekey)
+        //                    .map_err(|_| V1KpdbError::DecryptErr));
+
+        //         // Zero out unneeded keys
+        //         unsafe {
+        //             intrinsics::volatile_set_memory(passwordkey.as_ptr() as *mut c_void,
+        //                                             0u8,
+        //                                             passwordkey.len());
+        //             intrinsics::volatile_set_memory(keyfilekey.as_ptr() as *mut c_void,
+        //                                             0u8,
+        //                                             keyfilekey.len());
+        //             mman::munlock(passwordkey.as_ptr() as *const c_void,
+        //                           passwordkey.len() as size_t);
+        //             mman::munlock(keyfilekey.as_ptr() as *const c_void,
+        //                           keyfilekey.len() as size_t);
+        //         }
+
+        //         hasher.finish()
+        //     }
+        //     (&mut None, &mut None) => return Err(V1KpdbError::PassErr),
+        // };
+        // unsafe {
+        //     mman::mlock(masterkey.as_ptr() as *const c_void,
+        //                 masterkey.len() as size_t);
+        // }
+        // let finalkey = try!(Crypter::transform_key(masterkey, header));
+        // unsafe {
+        //     mman::mlock(finalkey.as_ptr() as *const c_void, finalkey.len() as size_t);
+        // }        
+        Ok(vec![])
+    }
+    
     // Hash the password string to create a decryption key from that
     fn get_passwordkey(password: &mut SecureString) -> Result<Vec<u8>, V1KpdbError> {
         // unlock SecureString
@@ -250,14 +312,19 @@ impl Crypter {
         Ok(())
     }
 
+    pub fn get_content_hash(content: &Vec<u8>) -> Result<Vec<u8>, V1KpdbError> {
+        let mut hasher = Hasher::new(Type::SHA256);
+        try!(hasher.write_all(&content)
+             .map_err(|_| V1KpdbError::DecryptErr));
+        Ok(hasher.finish())
+    }
+    
     // Check some more conditions
     fn check_content_hash(header: &V1Header,
                           decrypted_content: &Vec<u8>)
                           -> Result<(), V1KpdbError> {
-        let mut hasher = Hasher::new(Type::SHA256);
-        try!(hasher.write_all(&decrypted_content)
-                   .map_err(|_| V1KpdbError::DecryptErr));
-        if hasher.finish() != header.contents_hash {
+        let content_hash = try!(Crypter::get_content_hash(decrypted_content));
+        if content_hash != header.content_hash {
             return Err(V1KpdbError::HashErr);
         }
         Ok(())

@@ -1,13 +1,18 @@
 use std::io::Read;
 use std::fs::File;
 
-use kpdb::parser::Parser;
+use kpdb::parser::LoadParser;
 use kpdb::v1error::V1KpdbError;
+
+// Todo:
+// * Drop for critical data
+// * Parsing into LoadParser
 
 #[doc = "
 V1Header implements the header of a KeePass v1.x database.
 Normally you don't need to mess with this yourself.
 "]
+#[derive(Clone)]
 pub struct V1Header {
     /// File signature
     pub signature1: u32,
@@ -29,7 +34,7 @@ pub struct V1Header {
     pub num_entries: u32,
     /// Hash of the encrypted content to check success
     /// of decryption
-    pub contents_hash: Vec<u8>,
+    pub content_hash: Vec<u8>,
     /// A seed used to create the final key
     pub transf_randomseed: Vec<u8>,
     /// Specifies number of rounds of AES_ECB to create
@@ -49,7 +54,7 @@ impl V1Header {
             iv: vec![],
             num_groups: 0,
             num_entries: 0,
-            contents_hash: vec![],
+            content_hash: vec![],
             transf_randomseed: vec![],
             key_transf_rounds: 0,
         }
@@ -68,7 +73,7 @@ impl V1Header {
             Err(_) => return Err(V1KpdbError::ReadErr),
         };
 
-        *self = try!(Parser::parse_header(header_bytes));
+        *self = try!(LoadParser::parse_header(header_bytes));
         try!(V1Header::check_signatures(self));
         try!(V1Header::check_enc_flag(self));
         try!(V1Header::check_version(self));
@@ -122,8 +127,8 @@ mod tests {
         assert_eq!(header.final_randomseed[15], 0xE1u8);
         assert_eq!(header.iv[0], 0x15u8);
         assert_eq!(header.iv[15], 0xE5u8);
-        assert_eq!(header.contents_hash[0], 0xCBu8);
-        assert_eq!(header.contents_hash[15], 0x4Eu8);
+        assert_eq!(header.content_hash[0], 0xCBu8);
+        assert_eq!(header.content_hash[15], 0x4Eu8);
         assert_eq!(header.transf_randomseed[0], 0x69u8);
         assert_eq!(header.transf_randomseed[15], 0x9Fu8);
     }

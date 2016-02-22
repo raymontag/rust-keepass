@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use chrono::{DateTime, Local};
+use rand;
 
 use kpdb::GetIndex;
 use kpdb::crypter::Crypter;
-use kpdb::parser::Parser;
+use kpdb::parser::{LoadParser, SaveParser};
 use kpdb::v1error::V1KpdbError;
 use kpdb::v1group::V1Group;
 use kpdb::v1entry::V1Entry;
@@ -91,7 +92,7 @@ impl V1Kpdb {
                                           .decrypt_database(&self.header));
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
-        let mut parser = Parser::new(decrypted_database,
+        let mut parser = LoadParser::new(decrypted_database,
                                      self.header.num_groups,
                                      self.header.num_entries);
         let (groups, levels) = try!(parser.parse_groups());
@@ -102,7 +103,21 @@ impl V1Kpdb {
         parser.delete_decrypted_content();
 
         // Now create the group tree and sort the entries to their groups
-        try!(Parser::create_group_tree(self, levels));
+        try!(LoadParser::create_group_tree(self, levels));
+        Ok(())
+    }
+
+    pub fn save(&mut self,
+                path: Option<String>,
+                password: Option<String>,
+                keyfile: Option<String>) -> Result<(), V1KpdbError> {
+        let mut parser = SaveParser::new();
+        parser.prepare(self);
+        
+        let mut header = self.header.clone();
+        header.final_randomseed = (0..16).map(|_| rand::random::<u8>()).collect();
+        header.iv = (0..16).map(|_| rand::random::<u8>()).collect();
+        header.content_hash = try!(Crypter::get_content_hash(&parser.database));
         Ok(())
     }
 
