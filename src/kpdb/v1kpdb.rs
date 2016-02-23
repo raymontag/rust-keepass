@@ -1,12 +1,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::io::Read;
+use std::fs::File;
 
 use chrono::{DateTime, Local};
 use rand;
 
 use kpdb::GetIndex;
 use kpdb::crypter::Crypter;
-use kpdb::parser::{LoadParser, SaveParser};
+use kpdb::parser::{HeaderParser, LoadParser, SaveParser};
 use kpdb::v1error::V1KpdbError;
 use kpdb::v1group::V1Group;
 use kpdb::v1entry::V1Entry;
@@ -30,6 +32,7 @@ TODO:
 * editing
 * use more pattern matching
 * usage examples
+* use mlock in proper places (editing)
 "]
 pub struct V1Kpdb {
     /// Filepath of the database
@@ -75,26 +78,31 @@ impl V1Kpdb {
         };
 
         Ok(V1Kpdb {
-            path: path.clone(),
+            path: path,
             header: V1Header::new(),
             groups: vec![],
             entries: vec![],
             root_group: Rc::new(RefCell::new(V1Group::new())),
-            crypter: Crypter::new(path, sec_password, sec_keyfile),
+            crypter: Crypter::new(sec_password, sec_keyfile),
         })
     }
 
     /// Decrypt and parse the database.
     pub fn load(&mut self) -> Result<(), V1KpdbError> {
+        let (header, encrypted_database) = try!(self.read_in_file());
+        
         // First read header and decrypt the database
-        try!(self.header.read_header(self.path.clone()));
+        let header_parser = HeaderParser::new(header);
+        self.header = try!(header_parser.parse_header());
+        try!(self.check_header());
         let decrypted_database = try!(self.crypter
-                                          .decrypt_database(&self.header));
+                                      .decrypt_database(&self.header, encrypted_database));
+        
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
         let mut parser = LoadParser::new(decrypted_database,
-                                     self.header.num_groups,
-                                     self.header.num_entries);
+                                         self.header.num_groups,
+                                         self.header.num_entries);
         let (groups, levels) = try!(parser.parse_groups());
 
         self.groups = groups;
@@ -107,6 +115,20 @@ impl V1Kpdb {
         Ok(())
     }
 
+    fn read_in_file(&self) -> Result<(Vec<u8>, Vec<u8>), V1KpdbError> {
+        let mut file = try!(File::open(&self.path).map_err(|_| V1KpdbError::FileErr));
+        let mut raw: Vec<u8> = vec![];
+        try!(file.read_to_end(&mut raw).map_err(|_| V1KpdbError::ReadErr));
+        let encrypted_database = raw.split_off(124);
+        Ok((raw, encrypted_database))
+    }
+
+    fn check_header(&self) -> Result<(), V1KpdbError> {
+        try!(self.header.check_signatures());
+        try!(self.header.check_enc_flag());
+        self.header.check_version()
+    }
+    
     pub fn save(&mut self,
                 path: Option<String>,
                 password: Option<String>,
@@ -118,9 +140,10 @@ impl V1Kpdb {
         header.final_randomseed = (0..16).map(|_| rand::random::<u8>()).collect();
         header.iv = (0..16).map(|_| rand::random::<u8>()).collect();
         header.content_hash = try!(Crypter::get_content_hash(&parser.database));
+        self.crypter.encrypt_database(&header, parser.database);
         Ok(())
     }
-
+    
     /// Create a new group
     ///
     /// * title: title of the new group

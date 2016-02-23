@@ -1,21 +1,28 @@
 #![allow(dead_code, unused_imports)]
+use std::io::{Seek, SeekFrom, Read, Write};
+use std::fs::File;
 
 use chrono::Datelike;
 use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
-use kpdb::parser::{LoadParser,SaveParser};
+use kpdb::parser::{HeaderParser, LoadParser,SaveParser};
 use kpdb::v1header::V1Header;
 use kpdb::v1kpdb::V1Kpdb;
 use super::super::sec_str::SecureString;
 
 fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureString>) -> LoadParser {
-    let mut header = V1Header::new();
-    let _ = header.read_header(path.clone());
-    let mut crypter = Crypter::new(path, password, keyfile);
+    let mut file = File::open(path.clone()).unwrap();
+    let mut raw: Vec<u8> = vec![];
+    let _ = file.read_to_end(&mut raw);
+    let encrypted_database = raw.split_off(124);
+    let header_parser = HeaderParser::new(raw);
+    let header = header_parser.parse_header().unwrap();
+
+    let mut crypter = Crypter::new(password, keyfile);
 
     let mut decrypted_database: Vec<u8> = vec![];
-    match crypter.decrypt_database(&header) {
+    match crypter.decrypt_database(&header, encrypted_database) {
         Ok(e) => {
             decrypted_database = e;
         }
@@ -136,3 +143,39 @@ fn test_create_group_tree() {
     assert_eq!(get_entry_parent_title(3, &db), "21");
     assert_eq!(get_entry_parent_title(4, &db), "22");
 }
+
+
+#[test]
+fn test_read_header() {
+    let mut file = File::open("test/test_password.kdb".to_string()).unwrap();
+    let mut raw: Vec<u8> = vec![];
+    let _ = file.read_to_end(&mut raw);
+    let _ = raw.split_off(124);
+    let header_parser = HeaderParser::new(raw);
+
+    let mut header = V1Header::new();
+    match header_parser.parse_header() {
+        Ok(h) => {
+            header = h;
+        }
+        Err(_) => assert!(false),
+    }
+
+    assert_eq!(header.signature1, 0x9AA2D903u32);
+    assert_eq!(header.signature2, 0xB54BFB65u32);
+    assert_eq!(header.enc_flag & 2, 2);
+    assert_eq!(header.version, 0x00030002u32);
+    assert_eq!(header.num_groups, 2);
+    assert_eq!(header.num_entries, 1);
+    assert_eq!(header.key_transf_rounds, 150000);
+    assert_eq!(header.final_randomseed[0], 0xB0u8);
+    assert_eq!(header.final_randomseed[15], 0xE1u8);
+    assert_eq!(header.iv[0], 0x15u8);
+    assert_eq!(header.iv[15], 0xE5u8);
+    assert_eq!(header.content_hash[0], 0xCBu8);
+    assert_eq!(header.content_hash[15], 0x4Eu8);
+    assert_eq!(header.transf_randomseed[0], 0x69u8);
+    assert_eq!(header.transf_randomseed[15], 0x9Fu8);
+}
+
+

@@ -1,7 +1,3 @@
-use std::io::Read;
-use std::fs::File;
-
-use kpdb::parser::LoadParser;
 use kpdb::v1error::V1KpdbError;
 
 // Todo:
@@ -60,76 +56,27 @@ impl V1Header {
         }
     }
 
-    /// Use this to read the header in. path is the filepath of the database
-    pub fn read_header(&mut self, path: String) -> Result<(), V1KpdbError> {
-        let mut file = try!(File::open(path).map_err(|_| V1KpdbError::FileErr));
-        let header_bytes: &mut [u8] = &mut [0; 124];
-        match file.read(header_bytes) {
-            Ok(n) => {
-                if n < 124 {
-                    return Err(V1KpdbError::ReadErr);
-                }
-            }
-            Err(_) => return Err(V1KpdbError::ReadErr),
-        };
-
-        *self = try!(LoadParser::parse_header(header_bytes));
-        try!(V1Header::check_signatures(self));
-        try!(V1Header::check_enc_flag(self));
-        try!(V1Header::check_version(self));
-        Ok(())
-    }
-
     // Checks file signatures
-    fn check_signatures(header: &V1Header) -> Result<(), V1KpdbError> {
-        if header.signature1 != 0x9AA2D903u32 || header.signature2 != 0xB54BFB65u32 {
+    pub fn check_signatures(&self) -> Result<(), V1KpdbError> {
+        if self.signature1 != 0x9AA2D903u32 || self.signature2 != 0xB54BFB65u32 {
             return Err(V1KpdbError::SignatureErr);
         }
         Ok(())
     }
 
     // Checks encryption flag
-    fn check_enc_flag(header: &V1Header) -> Result<(), V1KpdbError> {
-        if header.enc_flag & 2 != 2 {
+    pub fn check_enc_flag(&self) -> Result<(), V1KpdbError> {
+        if self.enc_flag & 2 != 2 {
             return Err(V1KpdbError::EncFlagErr);
         }
         Ok(())
     }
 
     // Checks database version
-    fn check_version(header: &V1Header) -> Result<(), V1KpdbError> {
-        if header.version != 0x00030002u32 {
+    pub fn check_version(&self) -> Result<(), V1KpdbError> {
+        if self.version != 0x00030002u32 {
             return Err(V1KpdbError::VersionErr);
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::V1Header;
-
-    #[test]
-    fn test_read_header() {
-        let mut header = V1Header::new();
-        assert_eq!(header.read_header("test/test_password.kdb".to_string()).is_ok(),
-                   true);
-
-        let _ = header.read_header("test/test_password.kdb".to_string());
-        assert_eq!(header.signature1, 0x9AA2D903u32);
-        assert_eq!(header.signature2, 0xB54BFB65u32);
-        assert_eq!(header.enc_flag & 2, 2);
-        assert_eq!(header.version, 0x00030002u32);
-        assert_eq!(header.num_groups, 2);
-        assert_eq!(header.num_entries, 1);
-        assert_eq!(header.key_transf_rounds, 150000);
-        assert_eq!(header.final_randomseed[0], 0xB0u8);
-        assert_eq!(header.final_randomseed[15], 0xE1u8);
-        assert_eq!(header.iv[0], 0x15u8);
-        assert_eq!(header.iv[15], 0xE5u8);
-        assert_eq!(header.content_hash[0], 0xCBu8);
-        assert_eq!(header.content_hash[15], 0x4Eu8);
-        assert_eq!(header.transf_randomseed[0], 0x69u8);
-        assert_eq!(header.transf_randomseed[15], 0x9Fu8);
     }
 }

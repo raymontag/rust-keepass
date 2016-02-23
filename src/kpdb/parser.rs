@@ -17,6 +17,53 @@ use kpdb::v1group::V1Group;
 use sec_str::SecureString;
 use kpdb::v1header::V1Header;
 
+pub struct HeaderParser {
+    header: Vec<u8>,
+}
+
+impl HeaderParser {
+    pub fn new(header: Vec<u8>) -> HeaderParser {
+        HeaderParser {
+            header: header,
+        }
+    }
+
+    pub fn parse_header(&self) -> Result<V1Header, V1KpdbError> {
+        // A static method to parse a KeePass v1.x header
+        let mut final_randomseed: Vec<u8> = vec![];
+        let mut iv: Vec<u8> = vec![];
+        let mut content_hash: Vec<u8> = vec![];
+        let mut transf_randomseed: Vec<u8> = vec![];
+
+        let signature1 = try!(slice_to_u32(&self.header[0..4]));
+        let signature2 = try!(slice_to_u32(&self.header[4..8]));
+        let enc_flag = try!(slice_to_u32(&self.header[8..12]));
+        let version = try!(slice_to_u32(&self.header[12..16]));
+        final_randomseed.extend(&self.header[16..32]);
+        iv.extend(&self.header[32..48]);
+        let num_groups = try!(slice_to_u32(&self.header[48..52]));
+        let num_entries = try!(slice_to_u32(&self.header[52..56]));
+        content_hash.extend(&self.header[56..88]);
+        transf_randomseed.extend(&self.header[88..120]);
+        let key_transf_rounds = try!(slice_to_u32(&self.header[120..124]));
+
+
+        Ok(V1Header {
+            signature1: signature1,
+            signature2: signature2,
+            enc_flag: enc_flag,
+            version: version,
+            final_randomseed: final_randomseed,
+            iv: iv,
+            num_groups: num_groups,
+            num_entries: num_entries,
+            content_hash: content_hash,
+            transf_randomseed: transf_randomseed,
+            key_transf_rounds: key_transf_rounds,
+        })
+    }
+
+}
 // Implements a parser to load a KeePass DB
 pub struct LoadParser {
     pos: usize,
@@ -34,7 +81,7 @@ impl LoadParser {
             num_entries: num_entries,
         }
     }
-
+    
     // Parse the groups and put them into a vector
     pub fn parse_groups(&mut self) -> Result<(Vec<Rc<RefCell<V1Group>>>, Vec<u16>), V1KpdbError> {
         let mut group_number: u32 = 0;
@@ -303,42 +350,6 @@ impl LoadParser {
             mman::munlock(self.decrypted_database.as_ptr() as *const c_void,
                           self.decrypted_database.len() as size_t);
         }
-    }
-
-    pub fn parse_header(header_bytes: &[u8]) -> Result<V1Header, V1KpdbError> {
-        // A static method to parse a KeePass v1.x header
-
-        let mut final_randomseed: Vec<u8> = vec![];
-        let mut iv: Vec<u8> = vec![];
-        let mut content_hash: Vec<u8> = vec![];
-        let mut transf_randomseed: Vec<u8> = vec![];
-
-        let signature1 = try!(slice_to_u32(&header_bytes[0..4]));
-        let signature2 = try!(slice_to_u32(&header_bytes[4..8]));
-        let enc_flag = try!(slice_to_u32(&header_bytes[8..12]));
-        let version = try!(slice_to_u32(&header_bytes[12..16]));
-        final_randomseed.extend(&header_bytes[16..32]);
-        iv.extend(&header_bytes[32..48]);
-        let num_groups = try!(slice_to_u32(&header_bytes[48..52]));
-        let num_entries = try!(slice_to_u32(&header_bytes[52..56]));
-        content_hash.extend(&header_bytes[56..88]);
-        transf_randomseed.extend(&header_bytes[88..120]);
-        let key_transf_rounds = try!(slice_to_u32(&header_bytes[120..124]));
-
-
-        Ok(V1Header {
-            signature1: signature1,
-            signature2: signature2,
-            enc_flag: enc_flag,
-            version: version,
-            final_randomseed: final_randomseed,
-            iv: iv,
-            num_groups: num_groups,
-            num_entries: num_entries,
-            content_hash: content_hash,
-            transf_randomseed: transf_randomseed,
-            key_transf_rounds: key_transf_rounds,
-        })
     }
 }
 
