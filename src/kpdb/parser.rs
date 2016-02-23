@@ -17,13 +17,13 @@ use kpdb::v1group::V1Group;
 use sec_str::SecureString;
 use kpdb::v1header::V1Header;
 
-pub struct HeaderParser {
+pub struct HeaderLoadParser {
     header: Vec<u8>,
 }
 
-impl HeaderParser {
-    pub fn new(header: Vec<u8>) -> HeaderParser {
-        HeaderParser {
+impl HeaderLoadParser {
+    pub fn new(header: Vec<u8>) -> HeaderLoadParser {
+        HeaderLoadParser {
             header: header,
         }
     }
@@ -62,8 +62,38 @@ impl HeaderParser {
             key_transf_rounds: key_transf_rounds,
         })
     }
-
 }
+
+pub struct HeaderSaveParser {
+    header: V1Header
+}
+
+impl HeaderSaveParser {
+    pub fn new(header: V1Header) -> HeaderSaveParser {
+        HeaderSaveParser {
+            header: header
+        }
+    }
+
+    pub fn parse_header(&mut self) -> Vec<u8> {
+        let mut header_raw: Vec<u8> = vec![];
+
+        header_raw.append(&mut u32_to_vec_u8(self.header.signature1));
+        header_raw.append(&mut u32_to_vec_u8(self.header.signature2));
+        header_raw.append(&mut u32_to_vec_u8(self.header.enc_flag));
+        header_raw.append(&mut u32_to_vec_u8(self.header.version));
+        header_raw.append(&mut self.header.final_randomseed);
+        header_raw.append(&mut self.header.iv);
+        header_raw.append(&mut u32_to_vec_u8(self.header.num_groups));
+        header_raw.append(&mut u32_to_vec_u8(self.header.num_entries));
+        header_raw.append(&mut self.header.content_hash);
+        header_raw.append(&mut self.header.transf_randomseed);
+        header_raw.append(&mut u32_to_vec_u8(self.header.key_transf_rounds));
+
+        header_raw
+    }
+}
+
 // Implements a parser to load a KeePass DB
 pub struct LoadParser {
     pos: usize,
@@ -379,48 +409,50 @@ impl SaveParser {
     fn save_groups(&mut self,
                    database: &V1Kpdb) {
         let mut ret: Vec<u8>;
-        let mut ret_len: u16;
+        let mut ret_len: u32;
         for group in &database.groups {
-            for field_type in 1..10 as u32 {
+            for field_type in 1..10 as u16 {
                 ret = SaveParser::save_group_field(group.clone(), field_type);
-                ret_len = ret.len() as u16;
+                ret_len = ret.len() as u32;
                 if ret_len > 0 {
-                    self.database.append(&mut u16_to_vec_u8(ret_len));
-                    self.database.append(&mut u32_to_vec_u8(field_type));
+                    self.database.append(&mut u16_to_vec_u8(field_type));
+                    self.database.append(&mut u32_to_vec_u8(ret_len));
                     self.database.append(&mut ret);
                 }
-
-                self.database.append(&mut vec![0xFFu8, 0xFFu8]);
-                self.database.append(&mut vec![0u8, 0u8, 0u8, 0u8]);
             }
+            self.database.append(&mut vec![0xFFu8, 0xFFu8]);
+            self.database.append(&mut vec![0u8, 0u8, 0u8, 0u8]);
         }
     }
 
     fn save_entries(&mut self,
                     database: &V1Kpdb) {
         let mut ret: Vec<u8>;
-        let mut ret_len: u16;
+        let mut ret_len: u32;
         for entry in &database.entries {
-            for field_type in 1..15 as u32 {
+            for field_type in 1..15 as u16 {
                 ret = SaveParser::save_entry_field(entry.clone(), field_type);
-                ret_len = ret.len() as u16;
+                ret_len = ret.len() as u32;
                 if ret_len > 0 {
-                    self.database.append(&mut u16_to_vec_u8(ret_len));
-                    self.database.append(&mut u32_to_vec_u8(field_type));
+                    self.database.append(&mut u16_to_vec_u8(field_type));
+                    self.database.append(&mut u32_to_vec_u8(ret_len));
                     self.database.append(&mut ret);
                 }
-
-                self.database.append(&mut vec![0xFFu8, 0xFFu8]);
-                self.database.append(&mut vec![0u8, 0u8, 0u8, 0u8]);
-            }
+            }            
+            self.database.append(&mut vec![0xFFu8, 0xFFu8]);
+            self.database.append(&mut vec![0u8, 0u8, 0u8, 0u8]);
         }        
     }
     
     fn save_group_field(group: Rc<RefCell<V1Group>>,
-                        field_type: u32) -> Vec<u8> {
+                        field_type: u16) -> Vec<u8> {
         match field_type {
             0x0001 => return u32_to_vec_u8(group.borrow().id),
-            0x0002 => return group.borrow().title.clone().into_bytes(),
+            0x0002 => {
+                let mut title = group.borrow().title.clone().into_bytes();
+                title.push(0);
+                return title;
+            },
             0x0003 => return SaveParser::pack_date(&group.borrow().creation),
             0x0004 => return SaveParser::pack_date(&group.borrow().last_mod),
             0x0005 => return SaveParser::pack_date(&group.borrow().last_access),
@@ -435,7 +467,7 @@ impl SaveParser {
     }
 
     fn save_entry_field(entry: Rc<RefCell<V1Entry>>,
-                        field_type: u32) -> Vec<u8> {
+                        field_type: u16) -> Vec<u8> {
         match field_type {
             0x0001 => return (&entry.borrow().uuid.to_simple_string()[..]).from_hex().unwrap(), //Should never fail
             0x0002 => return u32_to_vec_u8(entry.borrow().group_id),

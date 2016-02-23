@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::fs::File;
 
 use chrono::{DateTime, Local};
@@ -8,7 +8,7 @@ use rand;
 
 use kpdb::GetIndex;
 use kpdb::crypter::Crypter;
-use kpdb::parser::{HeaderParser, LoadParser, SaveParser};
+use kpdb::parser::{HeaderLoadParser, HeaderSaveParser, LoadParser, SaveParser};
 use kpdb::v1error::V1KpdbError;
 use kpdb::v1group::V1Group;
 use kpdb::v1entry::V1Entry;
@@ -90,24 +90,22 @@ impl V1Kpdb {
     /// Decrypt and parse the database.
     pub fn load(&mut self) -> Result<(), V1KpdbError> {
         let (header, encrypted_database) = try!(self.read_in_file());
-        
+
         // First read header and decrypt the database
-        let header_parser = HeaderParser::new(header);
+        let header_parser = HeaderLoadParser::new(header);
         self.header = try!(header_parser.parse_header());
         try!(self.check_header());
         let decrypted_database = try!(self.crypter
                                       .decrypt_database(&self.header, encrypted_database));
-        
+
         // Next parse groups and entries.
         // pos is needed to remember position after group parsing
         let mut parser = LoadParser::new(decrypted_database,
                                          self.header.num_groups,
                                          self.header.num_entries);
         let (groups, levels) = try!(parser.parse_groups());
-
         self.groups = groups;
         self.entries = try!(parser.parse_entries());
-
         parser.delete_decrypted_content();
 
         // Now create the group tree and sort the entries to their groups
@@ -126,7 +124,8 @@ impl V1Kpdb {
     fn check_header(&self) -> Result<(), V1KpdbError> {
         try!(self.header.check_signatures());
         try!(self.header.check_enc_flag());
-        self.header.check_version()
+        try!(self.header.check_version());
+        Ok(())
     }
     
     pub fn save(&mut self,
@@ -140,7 +139,15 @@ impl V1Kpdb {
         header.final_randomseed = (0..16).map(|_| rand::random::<u8>()).collect();
         header.iv = (0..16).map(|_| rand::random::<u8>()).collect();
         header.content_hash = try!(Crypter::get_content_hash(&parser.database));
-        self.crypter.encrypt_database(&header, parser.database);
+        let encrypted_database = try!(self.crypter.encrypt_database(&header, parser.database));
+
+        let mut header_parser = HeaderSaveParser::new(header);
+        let header_raw = header_parser.parse_header();
+
+        let mut file = try!(File::create(&self.path).map_err(|_| V1KpdbError::FileErr));
+        try!(file.write_all(&header_raw).map_err(|_| V1KpdbError::WriteErr));
+        try!(file.write_all(&encrypted_database).map_err(|_| V1KpdbError::WriteErr));
+        try!(file.flush().map_err(|_| V1KpdbError::WriteErr));
         Ok(())
     }
     

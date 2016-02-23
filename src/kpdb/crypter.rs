@@ -12,9 +12,6 @@ use super::v1header::V1Header;
 use super::v1error::V1KpdbError;
 use super::super::sec_str::SecureString;
 
-// TODO
-// * crypter design overall
-
 // implements a crypter to de- and encrypt a KeePass DB
 pub struct Crypter {
     password: Option<SecureString>,

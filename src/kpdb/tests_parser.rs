@@ -6,7 +6,7 @@ use chrono::Datelike;
 use uuid::Uuid;
 
 use kpdb::crypter::Crypter;
-use kpdb::parser::{HeaderParser, LoadParser,SaveParser};
+use kpdb::parser::{HeaderLoadParser, LoadParser,SaveParser};
 use kpdb::v1header::V1Header;
 use kpdb::v1kpdb::V1Kpdb;
 use super::super::sec_str::SecureString;
@@ -16,7 +16,7 @@ fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureStr
     let mut raw: Vec<u8> = vec![];
     let _ = file.read_to_end(&mut raw);
     let encrypted_database = raw.split_off(124);
-    let header_parser = HeaderParser::new(raw);
+    let header_parser = HeaderLoadParser::new(raw);
     let header = header_parser.parse_header().unwrap();
 
     let mut crypter = Crypter::new(password, keyfile);
@@ -151,7 +151,7 @@ fn test_read_header() {
     let mut raw: Vec<u8> = vec![];
     let _ = file.read_to_end(&mut raw);
     let _ = raw.split_off(124);
-    let header_parser = HeaderParser::new(raw);
+    let header_parser = HeaderLoadParser::new(raw);
 
     let mut header = V1Header::new();
     match header_parser.parse_header() {
@@ -178,4 +178,63 @@ fn test_read_header() {
     assert_eq!(header.transf_randomseed[15], 0x9Fu8);
 }
 
+#[test]
+fn test_prepare_save() {
+    let test_1 = vec![0x01, 0x00, 0x04, 0x00,
+                      0x00, 0x00, 0x01, 0x00,
+                      0x00, 0x00, 0x02, 0x00,
+                      0x09, 0x00, 0x00, 0x00,
+                      0x49, 0x6e, 0x74, 0x65,
+                      0x72, 0x6e, 0x65, 0x74,
+                      0x00, 0x03, 0x00, 0x05,
+                      0x00, 0x00, 0x00, 0x1f,
+                      0x80, 0xae, 0xf4, 0x64,
+                      ];
+    let test_2 = vec![0x00, 0x00, 0x00, 0x01,
+                      0x00, 0x00, 0x00, 0x08,
+                      0x00, 0x02, 0x00, 0x00,
+                      0x00, 0x00, 0x00, 0x09,
+                      0x00, 0x04, 0x00, 0x00,
+                      0x00, 0x00, 0x00, 0x00,
+                      0x00, 0xff, 0xff, 0x00,
+                      0x00, 0x00, 0x00, 0x01,
+                      0x00, 0x04, 0x00, 0x00,
+                      ];
+    let test_3 = vec![0x05, 0x00, 0x05, 0x00,
+                      0x00, 0x00, 0x1f, 0x79,
+                      0x09, 0x71, 0x08, 0x06,
+                      0x00, 0x05, 0x00, 0x00,
+                      0x00, 0x2e, 0xdf, 0x39,
+                      0x7e, 0xfb, 0x07, 0x00,
+                      0x04, 0x00, 0x00, 0x00,
+                      0x01, 0x00, 0x00, 0x00,
+                      0x08, 0x00, 0x02, 0x00,
+                      ];
+    let test_4 = vec![0x31, 0x31, 0x00, 0x03,
+                      0x00, 0x05, 0x00, 0x00,
+                      0x00, 0x1f, 0x79, 0x09,
+                      0x71, 0x04, 0x04, 0x00,
+                      0x05, 0x00, 0x00, 0x00,
+                      0x1f, 0x79, 0x09, 0x71,
+                      0x0e, 0x05, 0x00, 0x05,
+                      0x00, 0x00, 0x00, 0x1f,
+                      0x79, 0x09, 0x71, 0x04,
+                      ];
+    
+    let mut db = V1Kpdb::new("test/test_save.kdb".to_string(),
+                             Some("test".to_string()),
+                             None)
+                     .ok()
+                     .unwrap();
+    assert_eq!(db.load().is_ok(), true);
+
+    let mut parser = SaveParser::new();
+    parser.prepare(&db);
+
+    println!("{:?}", parser.database);
+    assert_eq!(test_1[..], parser.database[0..36]);
+    assert_eq!(test_2[..], parser.database[72..108]);
+    assert_eq!(test_3[..], parser.database[144..180]);
+    assert_eq!(test_4[..], parser.database[216..252]);
+}
 

@@ -2,7 +2,7 @@
 use std::fs::File;
 use std::io::Read;
 
-use kpdb::parser::HeaderParser;
+use kpdb::parser::HeaderLoadParser;
 use kpdb::crypter::Crypter;
 use kpdb::v1header::V1Header;
 use super::super::sec_str::SecureString;
@@ -15,7 +15,7 @@ fn setup(path: String,
     let mut raw: Vec<u8> = vec![];
     let _ = file.read_to_end(&mut raw);
     let encrypted_database = raw.split_off(124);
-    let header_parser = HeaderParser::new(raw);
+    let header_parser = HeaderLoadParser::new(raw);
     let header = header_parser.parse_header().unwrap();
 
     let crypter = Crypter::new(password, keyfile);

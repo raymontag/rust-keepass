@@ -34,6 +34,17 @@ fn test_new() {
 }
 
 #[test]
+fn test_save() {
+    // if this test fails one has to copy test_password.kdb to test_save.kdb
+    let result = V1Kpdb::new("test/test_save.kdb".to_string(), Some("test".to_string()), None);
+    assert!(result.is_ok());
+    let mut db = result.ok().unwrap();
+    assert!(db.load().is_ok());
+    assert!(db.save(None, None, None).is_ok());
+    assert!(db.load().is_ok());
+}
+
+#[test]
 fn test_create_group_w_title_only() {
     let mut result = V1Kpdb::new("test/test_password.kdb".to_string(),
                                  Some("test".to_string()),

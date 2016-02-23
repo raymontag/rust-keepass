@@ -15,6 +15,8 @@ pub enum V1KpdbError {
     /// Something went wrong while the database is
     /// readed in
     ReadErr,
+    /// Something went wrong while the database was written
+    WriteErr,
     /// The file signature in the header is wrong
     SignatureErr,
     /// Not supported encryption used
@@ -52,6 +54,7 @@ impl error::Error for V1KpdbError {
         match *self {
             FileErr => "Couldn't open file or database is too small",
             ReadErr => "Couldn't read file",
+            WriteErr => "Couldn't write file",
             SignatureErr => "File signature in header is wrong",
             EncFlagErr => "Encryption algorithm not supported",
             VersionErr => "Wrong database version",
