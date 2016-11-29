@@ -1,3 +1,5 @@
+## ISC License
+
 Copyright (c) 2014-2015, Karsten-Kai König <mail@kkoenig.net>
 
 Permission to use, copy, modify, and/or distribute this software for any
