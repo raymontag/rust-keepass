@@ -15,10 +15,10 @@ doc = true
 
 [dependencies]
 
-rustc-serialize = "0.3"
-libc = "0.1.10"
-rand = "0.3"
-chrono = "0.2"
-uuid = "0.1"
-openssl = "0.6.6"
+rustc-serialize = "*"
+libc = "*"
+rand = "*"
+chrono = "*"
+uuid = { version = "*", features = ["v4"] }
+openssl = "*"
 

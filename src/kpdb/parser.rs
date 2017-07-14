@@ -1,7 +1,5 @@
-use libc::{c_void, size_t};
-use libc::funcs::posix88::mman;
+use libc::{c_void, munlock, size_t};
 use std::cell::{RefCell, RefMut};
-use std::intrinsics;
 use std::rc::Rc;
 use std::str;
 
@@ -9,13 +7,13 @@ use chrono::{DateTime, Local, TimeZone, Datelike, Timelike};
 use rustc_serialize::hex::FromHex;
 use uuid::Uuid;
 
-use kpdb::common::{slice_to_u16, slice_to_u32, u16_to_vec_u8, u32_to_vec_u8};
-use kpdb::v1error::V1KpdbError;
-use kpdb::v1kpdb::V1Kpdb;
 use kpdb::v1entry::V1Entry;
 use kpdb::v1group::V1Group;
-use sec_str::SecureString;
 use kpdb::v1header::V1Header;
+use kpdb::v1kpdb::V1Kpdb;
+use kpdb::v1error::V1KpdbError;
+use sec_str::SecureString;
+use common::common::{slice_to_u16, slice_to_u32, u16_to_vec_u8, u32_to_vec_u8, write_array_volatile};
 
 pub struct HeaderLoadParser {
     header: Vec<u8>,
@@ -35,17 +33,17 @@ impl HeaderLoadParser {
         let mut content_hash: Vec<u8> = vec![];
         let mut transf_randomseed: Vec<u8> = vec![];
 
-        let signature1 = try!(slice_to_u32(&self.header[0..4]));
-        let signature2 = try!(slice_to_u32(&self.header[4..8]));
-        let enc_flag = try!(slice_to_u32(&self.header[8..12]));
-        let version = try!(slice_to_u32(&self.header[12..16]));
+        let signature1 = try!(slice_to_u32(&self.header[0..4]).map_err(|_| V1KpdbError::ConvertErr));
+        let signature2 = try!(slice_to_u32(&self.header[4..8]).map_err(|_| V1KpdbError::ConvertErr));
+        let enc_flag = try!(slice_to_u32(&self.header[8..12]).map_err(|_| V1KpdbError::ConvertErr));
+        let version = try!(slice_to_u32(&self.header[12..16]).map_err(|_| V1KpdbError::ConvertErr));
         final_randomseed.extend(&self.header[16..32]);
         iv.extend(&self.header[32..48]);
-        let num_groups = try!(slice_to_u32(&self.header[48..52]));
-        let num_entries = try!(slice_to_u32(&self.header[52..56]));
+        let num_groups = try!(slice_to_u32(&self.header[48..52]).map_err(|_| V1KpdbError::ConvertErr));
+        let num_entries = try!(slice_to_u32(&self.header[52..56]).map_err(|_| V1KpdbError::ConvertErr));
         content_hash.extend(&self.header[56..88]);
         transf_randomseed.extend(&self.header[88..120]);
-        let key_transf_rounds = try!(slice_to_u32(&self.header[120..124]));
+        let key_transf_rounds = try!(slice_to_u32(&self.header[120..124]).map_err(|_| V1KpdbError::ConvertErr));
 
 
         Ok(V1Header {
@@ -123,14 +121,14 @@ impl LoadParser {
         let mut field_size: u32;
 
         while group_number < self.num_groups {
-            field_type = try!(slice_to_u16(&self.decrypted_database[self.pos..self.pos + 2]));
+            field_type = try!(slice_to_u16(&self.decrypted_database[self.pos..self.pos + 2]).map_err(|_| V1KpdbError::ConvertErr));
             self.pos += 2;
 
             if self.pos > self.decrypted_database.len() {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            field_size = try!(slice_to_u32(&self.decrypted_database[self.pos..self.pos + 4]));
+            field_size = try!(slice_to_u32(&self.decrypted_database[self.pos..self.pos + 4]).map_err(|_| V1KpdbError::ConvertErr));
             self.pos += 4;
 
             if self.pos > self.decrypted_database.len() {
@@ -170,14 +168,14 @@ impl LoadParser {
         let mut field_size: u32;
 
         while entry_number < self.num_entries {
-            field_type = try!(slice_to_u16(&self.decrypted_database[self.pos..self.pos + 2]));
+            field_type = try!(slice_to_u16(&self.decrypted_database[self.pos..self.pos + 2]).map_err(|_| V1KpdbError::ConvertErr));
             self.pos += 2;
 
             if self.pos > self.decrypted_database.len() {
                 return Err(V1KpdbError::OffsetErr);
             }
 
-            field_size = try!(slice_to_u32(&self.decrypted_database[self.pos..self.pos + 4]));
+            field_size = try!(slice_to_u32(&self.decrypted_database[self.pos..self.pos + 4]).map_err(|_| V1KpdbError::ConvertErr));
             self.pos += 4;
 
             if self.pos > self.decrypted_database.len() {
@@ -218,7 +216,7 @@ impl LoadParser {
         };
 
         match field_type {
-            0x0001 => group.id = try!(slice_to_u32(db_slice)),
+            0x0001 => group.id = try!(slice_to_u32(db_slice).map_err(|_| V1KpdbError::ConvertErr)),
             0x0002 => {
                 group.title = str::from_utf8(db_slice)
                                   .unwrap_or("")
@@ -228,9 +226,9 @@ impl LoadParser {
             0x0004 => group.last_mod = LoadParser::get_date(db_slice),
             0x0005 => group.last_access = LoadParser::get_date(db_slice),
             0x0006 => group.expire = LoadParser::get_date(db_slice),
-            0x0007 => group.image = try!(slice_to_u32(db_slice)),
-            0x0008 => group.level = try!(slice_to_u16(db_slice)),
-            0x0009 => group.flags = try!(slice_to_u32(db_slice)),
+            0x0007 => group.image = try!(slice_to_u32(db_slice).map_err(|_| V1KpdbError::ConvertErr)),
+            0x0008 => group.level = try!(slice_to_u16(db_slice).map_err(|_| V1KpdbError::ConvertErr)),
+            0x0009 => group.flags = try!(slice_to_u32(db_slice).map_err(|_| V1KpdbError::ConvertErr)),
             _ => (),
         }
 
@@ -252,8 +250,8 @@ impl LoadParser {
 
         match field_type {
             0x0001 => entry.uuid = Uuid::from_bytes(db_slice).unwrap(),
-            0x0002 => entry.group_id = try!(slice_to_u32(db_slice)),
-            0x0003 => entry.image = try!(slice_to_u32(db_slice)),
+            0x0002 => entry.group_id = try!(slice_to_u32(db_slice).map_err(|_| V1KpdbError::ConvertErr)),
+            0x0003 => entry.image = try!(slice_to_u32(db_slice).map_err(|_| V1KpdbError::ConvertErr)),
             0x0004 => {
                 entry.title = str::from_utf8(db_slice)
                                   .unwrap_or("")
@@ -374,10 +372,10 @@ impl LoadParser {
     pub fn delete_decrypted_content(&mut self) {
         // Zero out raw data as it's not needed anymore
         unsafe {
-            intrinsics::volatile_set_memory(self.decrypted_database.as_ptr() as *mut c_void,
-                                            0u8,
-                                            self.decrypted_database.len());
-            mman::munlock(self.decrypted_database.as_ptr() as *const c_void,
+            write_array_volatile(self.decrypted_database.as_ptr() as *mut u8,
+                                 0u8,
+                                 self.decrypted_database.len());
+            munlock(self.decrypted_database.as_ptr() as *const c_void,
                           self.decrypted_database.len() as size_t);
         }
     }
@@ -469,7 +467,7 @@ impl SaveParser {
     fn save_entry_field(entry: Rc<RefCell<V1Entry>>,
                         field_type: u16) -> Vec<u8> {
         match field_type {
-            0x0001 => return (&entry.borrow().uuid.to_simple_string()[..]).from_hex().unwrap(), //Should never fail
+            0x0001 => return (&entry.borrow().uuid.simple().to_string()[..]).from_hex().unwrap(), //Should never fail
             0x0002 => return u32_to_vec_u8(entry.borrow().group_id),
             0x0003 => return u32_to_vec_u8(entry.borrow().image),
             0x0004 => {

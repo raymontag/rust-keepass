@@ -1,8 +1,8 @@
-use libc::{c_void, size_t};
-use libc::funcs::posix88::mman;
-use openssl::crypto::symm;
+use libc::{c_void, mlock, munlock, size_t};
+use openssl::symm;
 use rand;
-use std::intrinsics;
+
+use common::common::write_array_volatile;
 
 #[doc = "
 SecureString implements a secure string. This means in particular:
@@ -40,16 +40,16 @@ impl SecureString {
     pub fn new(string: String) -> SecureString {
         // Lock the string against swapping
         unsafe {
-            mman::mlock(string.as_ptr() as *const c_void, string.len() as size_t);
+            mlock(string.as_ptr() as *const c_void, string.len() as size_t);
         }
         let mut sec_str = SecureString {
             string: string,
             encrypted_string: vec![],
             password: (0..32).map(|_| rand::random::<u8>()).collect(),
-            iv: (0..32).map(|_| rand::random::<u8>()).collect(),
+            iv: (0..16).map(|_| rand::random::<u8>()).collect(),
         };
         unsafe {
-            mman::mlock(sec_str.encrypted_string.as_ptr() as *const c_void,
+            mlock(sec_str.encrypted_string.as_ptr() as *const c_void,
                         sec_str.encrypted_string.len() as size_t);
         }
         sec_str.lock();
@@ -60,29 +60,28 @@ impl SecureString {
     /// Overwrite the string with zeroes. Call this everytime after unlock() if you don't
     /// need the string anymore.
     pub fn delete(&self) {
-        // Use volatile_set_memory to make sure that the operation is executed.
+        // Use volatile to make sure that the operation is executed.
         unsafe {
-            intrinsics::volatile_set_memory(self.string.as_ptr() as *mut c_void,
-                                            0u8,
-                                            self.string.len())
+            write_array_volatile(self.string.as_ptr() as *mut u8,
+                                 0u8,
+                                 self.string.len())
         };
     }
 
     fn lock(&mut self) {
-        self.encrypted_string = symm::encrypt(symm::Type::AES_256_CBC,
+        self.encrypted_string = symm::encrypt(symm::Cipher::aes_256_cbc(),
                                               &self.password,
-                                              self.iv.clone(),
-                                              self.string.as_bytes());
+                                              Some(&self.iv),
+                                              self.string.as_bytes()).expect("Can't encrypt string!?");
     }
 
     /// Unlock the string, i.e. decrypt it and make it available via the string value.
     /// Don't forget to call delete() if you don't need the plain text anymore.
     pub fn unlock(&mut self) {
-        self.string = String::from_utf8(symm::decrypt(symm::Type::AES_256_CBC,
+        self.string = String::from_utf8(symm::decrypt(symm::Cipher::aes_256_cbc(),
                                                       &self.password,
-                                                      self.iv.clone(),
-                                                      &self.encrypted_string))
-                          .unwrap();
+                                                      Some(&self.iv),
+                                                      &self.encrypted_string).expect("Can't decrypt string!?")).unwrap();
     }
 }
 
@@ -91,12 +90,12 @@ impl Drop for SecureString {
     fn drop(&mut self) {
         self.delete();
         unsafe {
-            mman::munlock(self.string.as_ptr() as *const c_void,
+            munlock(self.string.as_ptr() as *const c_void,
                           self.string.len() as size_t);
-            intrinsics::volatile_set_memory(self.encrypted_string.as_ptr() as *mut c_void,
-                                            0u8,
-                                            self.encrypted_string.len());
-            mman::munlock(self.encrypted_string.as_ptr() as *const c_void,
+            write_array_volatile(self.encrypted_string.as_ptr() as *mut u8,
+                                 0u8,
+                                 self.encrypted_string.len());
+            munlock(self.encrypted_string.as_ptr() as *const c_void,
                           self.encrypted_string.len() as size_t);
         }
     }

@@ -1,17 +1,19 @@
-use kpdb::v1error::V1KpdbError;
+use std::ptr;
 
-pub fn slice_to_u16(slice: &[u8]) -> Result<u16, V1KpdbError> {
+use common::common_error::CommonError;
+
+pub fn slice_to_u16(slice: &[u8]) -> Result<u16, CommonError> {
     if slice.len() < 2 {
-        return Err(V1KpdbError::ConvertErr);
+        return Err(CommonError::ConvertErr);
     }
 
     let value = (slice[1] as u16) << 8;
     Ok(value | slice[0] as u16)
 }
 
-pub fn slice_to_u32(slice: &[u8]) -> Result<u32, V1KpdbError> {
+pub fn slice_to_u32(slice: &[u8]) -> Result<u32, CommonError> {
     if slice.len() < 4 {
-        return Err(V1KpdbError::ConvertErr);
+        return Err(CommonError::ConvertErr);
     }
 
     let mut value = (slice[3] as u32) << 24;
@@ -35,3 +37,10 @@ pub fn u32_to_vec_u8(value: u32) -> Vec<u8> {
     ret[3] |= ((value & (0xFF << 24)) >> 24) as u8;
     ret
 }
+
+pub unsafe fn write_array_volatile(dst: *mut u8, val: u8, count: usize) {
+    for i in 0..count {
+        ptr::write_volatile(dst.offset(i as isize), val);
+    }
+}
+

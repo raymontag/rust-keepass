@@ -23,6 +23,8 @@ pub enum V1KpdbError {
     EncFlagErr,
     /// Wrong database version
     VersionErr,
+    /// Some error in encryption
+    EncryptErr,
     /// Some error in decryption
     DecryptErr,
     /// Hash of decrypted content is wrong.
@@ -58,6 +60,7 @@ impl error::Error for V1KpdbError {
             SignatureErr => "File signature in header is wrong",
             EncFlagErr => "Encryption algorithm not supported",
             VersionErr => "Wrong database version",
+            EncryptErr => "Something went wrong during encryption",
             DecryptErr => "Something went wrong during decryption",
             HashErr => "Content's hash is wrong, probably wrong password",
             ConvertErr => "Some error while parsing the database",
