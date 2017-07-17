@@ -29,7 +29,7 @@ fn test_new() {
     db = result.ok().unwrap();
     match db.load() {
         Ok(_) => assert!(false),
-        Err(e) => assert_eq!(e, V1KpdbError::HashErr),
+        Err(e) => assert_eq!(e, V1KpdbError::DecryptErr),
     };
 }
 

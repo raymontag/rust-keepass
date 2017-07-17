@@ -107,10 +107,8 @@ impl Crypter {
                 let mut hasher = hash::Hasher::new(hash::MessageDigest::sha256()).expect("Can't hash passwords!?");
                 try!(hasher.write_all(&passwordkey)
                      .map_err(|_| V1KpdbError::DecryptErr));
-                println!("1");
                 try!(hasher.write_all(&keyfilekey)
                      .map_err(|_| V1KpdbError::DecryptErr));
-                println!("2");
 
                 let masterkey_tmp = hasher.finish2().expect("Can't hash masterkey");
                 // Zero out unneeded keys and lock masterkey
@@ -154,7 +152,6 @@ impl Crypter {
         let mut hasher = hash::Hasher::new(hash::MessageDigest::sha256()).expect("Can't creater hasher!?");
         try!(hasher.write_all(password_string)
              .map_err(|_| V1KpdbError::DecryptErr));
-        println!("3");
         password.delete();
 
         // hasher.finish() is a move and therefore secure
@@ -272,7 +269,6 @@ impl Crypter {
                     buf.truncate(n);
                     try!(hasher.write_all(&buf[..])
                          .map_err(|_| V1KpdbError::DecryptErr));
-                    println!("4");
                     unsafe {
                         write_array_volatile(buf.as_ptr() as *mut u8, 0u8, buf.len())
                     };
@@ -327,18 +323,13 @@ impl Crypter {
         let mut hasher = hash::Hasher::new(hash::MessageDigest::sha256()).expect("Could not create Hasher!?");
         try!(hasher.write_all(&masterkey)
              .map_err(|_| V1KpdbError::DecryptErr));
-        println!("5");
         masterkey = hasher.finish2().expect("Could not hash masterkey!?").to_vec();
         let mut hasher = hash::Hasher::new(hash::MessageDigest::sha256()).expect("Could not create Hasher!?");
         try!(hasher.write_all(&header.final_randomseed)
              .map_err(|_| V1KpdbError::DecryptErr));
-        println!("6");
         try!(hasher.write_all(&masterkey)
              .map_err(|_| V1KpdbError::DecryptErr));
-        println!("7");
         let finalkey = hasher.finish2().expect("Could not hash finalkey!?");
-
-        println!("{:?}", finalkey);
 
         // Zero out masterkey as it is not needed anymore
         unsafe {
@@ -366,21 +357,10 @@ impl Crypter {
     //
     // finalkey is locked through transform_key
     fn decrypt_raw(header: &V1Header, encrypted_database: Vec<u8>, finalkey: Vec<u8>) -> Result<Vec<u8>, V1KpdbError> {
-        // let mut decrypted_database = try!(symm::decrypt(symm::Cipher::aes_256_cbc(),
-        //                                                 &finalkey,
-        //                                                 Some(header.iv.as_slice()),
-        //                                                 &encrypted_database).map_err(|_| V1KpdbError::DecryptErr));
-        let mut decrypted_database_foo = symm::decrypt(symm::Cipher::aes_256_cbc(),
-                                                       &finalkey,
-                                                       Some(header.iv.as_slice()),
-                                                       &encrypted_database);
-        let mut decrypted_database = vec![0u8];
-        match decrypted_database_foo {
-            Ok(o) => decrypted_database = o,
-            Err(e) => println!("{}", e),
-        };
-
-        println!("8");
+        let mut decrypted_database = try!(symm::decrypt(symm::Cipher::aes_256_cbc(),
+                                                        &finalkey,
+                                                        Some(header.iv.as_slice()),
+                                                        &encrypted_database).map_err(|_| V1KpdbError::DecryptErr));
 
         // Zero out finalkey as it is not needed anymore
         unsafe {
@@ -431,7 +411,6 @@ impl Crypter {
            (decrypted_content.len() == 0 && header.num_groups > 0) {
                return Err(V1KpdbError::DecryptErr);
            }
-        println!("9");
         Ok(())
     }
 
@@ -444,7 +423,6 @@ impl Crypter {
         let mut hasher = hash::Hasher::new(hash::MessageDigest::sha256()).expect("Could not create hasher!?");
         try!(hasher.write_all(&decrypted_content)
              .map_err(|_| V1KpdbError::DecryptErr));
-        println!("10");
         Ok(hasher.finish2().expect("Can't hash decrypted concent!?").to_vec())
     }
     
