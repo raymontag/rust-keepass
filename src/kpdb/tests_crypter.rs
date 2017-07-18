@@ -8,8 +8,8 @@ use kpdb::v1header::V1Header;
 use super::super::sec_str::SecureString;
 
 fn setup(path: String,
-         password: Option<SecureString>,
-         keyfile: Option<SecureString>)
+         password: Option<String>,
+         keyfile: Option<String>)
          -> (Crypter, V1Header, Vec<u8>) {
     let mut file = File::open(path.clone()).unwrap();
     let mut raw: Vec<u8> = vec![];
@@ -18,7 +18,7 @@ fn setup(path: String,
     let header_parser = HeaderLoadParser::new(raw);
     let header = header_parser.parse_header().unwrap();
 
-    let crypter = Crypter::new(password, keyfile);
+    let crypter = Crypter::new(password, keyfile).unwrap();
 
     (crypter, header, encrypted_database)
 }
@@ -31,7 +31,7 @@ fn test_decrypt_it_w_pass() {
                                       0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00];
 
     let (mut crypter, header, encrypted_database) = setup("test/test_password.kdb".to_string(),
-                                                          Some(SecureString::new("test".to_string())),
+                                                          Some("test".to_string()),
                                                           None);
 
     let mut db_tmp: Vec<u8> = vec![];
@@ -57,7 +57,7 @@ fn test_decrypt_it_w_32_b_key() {
 
     let (mut crypter, header, encrypted_database) = setup("test/test_32B_key.kdb".to_string(),
                                                           None,
-                                                          Some(SecureString::new("test/32Bkey".to_string())));
+                                                          Some("test/32Bkey".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -82,7 +82,7 @@ fn test_decrypt_it_w_64_b_key() {
 
     let (mut crypter, header, encrypted_database) = setup("test/test_64B_key.kdb".to_string(),
                                                           None,
-                                                          Some(SecureString::new("test/64Bkey".to_string())));
+                                                          Some("test/64Bkey".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -107,7 +107,7 @@ fn test_decrypt_it_w_64_b_alt_key() {
 
     let (mut crypter, header, encrypted_database) = setup("test/test_64B_alt_key.kdb".to_string(),
                                                           None,
-                                                          Some(SecureString::new("test/64Bkey_alt".to_string())));
+                                                          Some("test/64Bkey_alt".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -132,7 +132,7 @@ fn test_decrypt_it_w_128_b_key() {
 
     let (mut crypter, header, encrypted_database) = setup("test/test_128B_key.kdb".to_string(),
                                                           None,
-                                                          Some(SecureString::new("test/128Bkey".to_string())));
+                                                          Some("test/128Bkey".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -157,7 +157,7 @@ fn test_decrypt_it_w_2048_b_key() {
 
     let (mut crypter, header, encrypted_database) = setup("test/test_2048B_key.kdb".to_string(),
                                                           None,
-                                                          Some(SecureString::new("test/2048Bkey".to_string())));
+                                                          Some("test/2048Bkey".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -182,7 +182,7 @@ fn test_decrypt_it_w_4096_b_key() {
 
     let (mut crypter, header, encrypted_database) = setup("test/test_4096B_key.kdb".to_string(),
                                                           None,
-                                                          Some(SecureString::new("test/4096Bkey".to_string())));
+                                                          Some("test/4096Bkey".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -206,8 +206,8 @@ fn test_decrypt_it_w_both() {
                                       0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00];
 
     let (mut crypter, header, encrypted_database) = setup("test/test_both.kdb".to_string(),
-                                                          Some(SecureString::new("test".to_string())),
-                                                          Some(SecureString::new("test/test_key".to_string())));
+                                                          Some("test".to_string()),
+                                                          Some("test/test_key".to_string()));
 
     let mut db_tmp: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {

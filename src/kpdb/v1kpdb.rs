@@ -64,26 +64,13 @@ impl V1Kpdb {
                password: Option<String>,
                keyfile: Option<String>)
                -> Result<V1Kpdb, V1KpdbError> {
-        // Password and/or keyfile needed but at least one of both
-        if password.is_none() && keyfile.is_none() {
-            return Err(V1KpdbError::PassErr);
-        }
-        let sec_password = match password {
-            Some(s) => Some(SecureString::new(s)),
-            None => None,
-        };
-        let sec_keyfile = match keyfile {
-            Some(s) => Some(SecureString::new(s)),
-            None => None,
-        };
-
         Ok(V1Kpdb {
             path: path,
             header: V1Header::new(),
             groups: vec![],
             entries: vec![],
             root_group: Rc::new(RefCell::new(V1Group::new())),
-            crypter: Crypter::new(sec_password, sec_keyfile),
+            crypter: try!(Crypter::new(password, keyfile)),
         })
     }
 
@@ -139,15 +126,39 @@ impl V1Kpdb {
         header.final_randomseed = (0..16).map(|_| rand::random::<u8>()).collect();
         header.iv = (0..16).map(|_| rand::random::<u8>()).collect();
         header.content_hash = try!(Crypter::get_content_hash(&parser.database));
+
+
+        if let Some(new_password) = password {
+            if new_password == "".to_string() {
+                self.crypter.change_password(None);
+            }
+            else {
+                self.crypter.change_password(Some(new_password));
+            }
+        }
+
+        if let Some(new_keyfile) = keyfile {
+            if new_keyfile == "".to_string() {
+                self.crypter.change_keyfile(None);
+            }
+            else {
+                self.crypter.change_keyfile(Some(new_keyfile));
+            }
+        }
+
         let encrypted_database = try!(self.crypter.encrypt_database(&header, parser.database));
 
         let mut header_parser = HeaderSaveParser::new(header);
         let header_raw = header_parser.parse_header();
 
+        if let Some(new_path) = path {
+            self.path = new_path
+        }
         let mut file = try!(File::create(&self.path).map_err(|_| V1KpdbError::FileErr));
         try!(file.write_all(&header_raw).map_err(|_| V1KpdbError::WriteErr));
         try!(file.write_all(&encrypted_database).map_err(|_| V1KpdbError::WriteErr));
-        try!(file.flush().map_err(|_| V1KpdbError::WriteErr));
+        try!(file.flush().map_err(|_| V1KpdbError::WriteErr));            
+
         Ok(())
     }
     

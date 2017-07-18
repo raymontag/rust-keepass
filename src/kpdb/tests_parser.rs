@@ -11,7 +11,7 @@ use kpdb::v1header::V1Header;
 use kpdb::v1kpdb::V1Kpdb;
 use super::super::sec_str::SecureString;
 
-fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureString>) -> LoadParser {
+fn setup(path: String, password: Option<String>, keyfile: Option<String>) -> LoadParser {
     let mut file = File::open(path.clone()).unwrap();
     let mut raw: Vec<u8> = vec![];
     let _ = file.read_to_end(&mut raw);
@@ -19,7 +19,7 @@ fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureStr
     let header_parser = HeaderLoadParser::new(raw);
     let header = header_parser.parse_header().unwrap();
 
-    let mut crypter = Crypter::new(password, keyfile);
+    let mut crypter = Crypter::new(password, keyfile).unwrap();
 
     let mut decrypted_database: Vec<u8> = vec![];
     match crypter.decrypt_database(&header, encrypted_database) {
@@ -35,7 +35,7 @@ fn setup(path: String, password: Option<SecureString>, keyfile: Option<SecureStr
 #[test]
 fn test_parse_groups() {
     let mut parser = setup("test/test_password.kdb".to_string(),
-                           Some(SecureString::new("test".to_string())),
+                           Some("test".to_string()),
                            None);
 
     let mut groups = vec![];
@@ -67,7 +67,7 @@ fn test_parse_entries() {
                    .unwrap();
 
     let mut parser = setup("test/test_password.kdb".to_string(),
-                           Some(SecureString::new("test".to_string())),
+                           Some("test".to_string()),
                            None);
 
     match parser.parse_groups() {

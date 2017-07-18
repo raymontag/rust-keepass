@@ -32,18 +32,72 @@ pub struct Crypter {
 // * key: created in get_keyfilekey, moved into keyfilekey or is zeroed out in get_keyfile_key
 // * decoded_key: created in get_keyfilekey, moved into keyfilekey
 // * buf: created and zeroed out in get_keyfilekey
-// * file ... TODO
 impl Crypter {
     // Decrypt the database and return the raw data as Vec<u8>
-    pub fn new(password: Option<SecureString>,
-               keyfile: Option<SecureString>)
-               -> Crypter {
-        Crypter {
-            password: password,
-            keyfile: keyfile,
+    // Sensitive data in this function:
+    //
+    // * password
+    // * keyfile
+    //
+    // Both are moved out of new into SecureString
+    pub fn new(password: Option<String>,
+               keyfile: Option<String>)
+               -> Result<Crypter, V1KpdbError> {
+        match (password, keyfile) {
+            (Some(p), None) => Ok(Crypter { password: Some(SecureString::new(p)),
+                                            keyfile: None, }),
+            (None, Some(k)) => Ok(Crypter { password: None,
+                                         keyfile: Some(SecureString::new(k)), }),
+            (Some(p), Some(k)) => Ok(Crypter { password: Some(SecureString::new(p)),
+                                               keyfile: Some(SecureString::new(k)), }),
+            (None, None) => Err(V1KpdbError::PassErr),
         }
+        
     }
 
+    // Sensitive data in this function:
+    //
+    // * password moved out of function
+    //
+    // Old password's SecureString is deleted through Drop
+    pub fn change_password(&mut self, password: Option<String>) -> Result<(), V1KpdbError> {
+        // Weird construct because self.keyfile in second match
+        // creates compiler errors due to invalid borrowing
+        let keyfile_option = match self.keyfile {
+            Some(_) => Some(()),
+            None => None,
+        };
+        match (password, keyfile_option) {
+            (None, None) => return Err(V1KpdbError::PassErr),
+            (None, Some(())) => self.password = None,
+            (Some(p), _) => self.password = Some(SecureString::new(p)),
+        };
+
+        Ok(())
+    }
+
+    // Sensitive data in this function:
+    //
+    // * keyfile moved out of function
+    //
+    // Old keyfiles's SecureString is deleted through Drop
+    pub fn change_keyfile(&mut self, keyfile: Option<String>) -> Result<(), V1KpdbError> {
+        // Weird construct because self.password in second match
+        // creates compiler errors due to invalid borrowing
+        let password_option = match self.password {
+            Some(_) => Some(()),
+            None => None,
+        };
+
+        match (password_option, keyfile) {
+            (None, None) => return Err(V1KpdbError::PassErr),
+            (Some(()), None) => self.keyfile = None,
+            (_, Some(k)) => self.keyfile = Some(SecureString::new(k)),
+        };
+
+        Ok(())
+    }
+    
     // Sensitive data in this function:
     // * finalkey (locked: transform_key)
     // * decrypted_database (locked: decrypt_raw)
