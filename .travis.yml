@@ -2,5 +2,8 @@ language: rust
 rust: 
 - stable
 sudo: false
+after_success:
+- if [[ "$TRAVIS_RUST_VERSION" == "stable" ]] && [[ "$TRAVIS_OS_NAME" == "linux" ]]; then travis-cargo coveralls --no-sudo --verify; fi
 os:
 - linux
+- osx
