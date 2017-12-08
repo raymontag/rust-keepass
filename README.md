@@ -1,7 +1,7 @@
 rust-keepass
 ============
 
-[![Build Status](https://travis-ci.org/raymontag/rust-keepass.svg?branch=master)](https://travis-ci.org/raymontag/rust-keepass)
+[![Build Status](https://travis-ci.org/raymontag/rust-keepass.svg?branch=master)](https://travis-ci.org/raymontag/rust-keepass) [![Coverage Status](https://coveralls.io/repos/github/raymontag/rust-keepass/badge.svg?branch=master)](https://coveralls.io/github/raymontag/rust-keepass?branch=master)
 
 Usage
 -----
